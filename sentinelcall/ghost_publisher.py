@@ -258,7 +258,7 @@ class GhostPublisher:
         """Store a post in memory and return a mock response."""
         post_id = f"ghost-{uuid.uuid4().hex[:12]}"
         slug = post_data["title"].lower().replace(" ", "-")[:60]
-        mock_url = f"https://sentinelcall.ghost.io/{slug}/"
+        mock_url = f"https://page0.ghost.io/{slug}/"
         record = {
             "id": post_id,
             "url": mock_url,

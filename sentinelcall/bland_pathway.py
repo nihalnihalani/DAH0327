@@ -76,7 +76,7 @@ def build_pathway_nodes(incident_context: dict[str, Any] | None = None) -> list[
                 "isStart": True,
                 "text": "",
                 "prompt": (
-                    f"You are SentinelCall, an autonomous SRE incident response agent. "
+                    f"You are Page0, an autonomous SRE incident response agent. "
                     f"Greet the engineer and brief them on the incident:\n"
                     f"- Service: {service}\n"
                     f"- Severity: {severity}\n"
@@ -287,7 +287,7 @@ def create_pathway(incident_context: dict[str, Any] | None = None) -> dict[str, 
     global _pathway_id
 
     ctx = incident_context or {}
-    pathway_name = f"SentinelCall Incident Response - {ctx.get('service', 'general')}"
+    pathway_name = f"Page0 Incident Response - {ctx.get('service', 'general')}"
     nodes = build_pathway_nodes(incident_context)
     edges = build_pathway_edges()
 

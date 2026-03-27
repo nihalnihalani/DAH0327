@@ -8,7 +8,7 @@ TrueFoundry AI Gateway supports guardrails configuration via YAML rules
   - mcp_tool_post_invoke_guardrails: after MCP tool results
 
 Each rule has a ``when`` block for targeting specific models, users, or
-metadata.  SentinelCall implements local guardrails that mirror what would
+metadata.  Page0 implements local guardrails that mirror what would
 be deployed as a custom guardrails server (FastAPI) registered with
 TrueFoundry.
 
@@ -110,15 +110,15 @@ class GuardrailsConfig:
 
     TrueFoundry guardrails YAML structure::
 
-        name: sentinelcall-guardrails
+        name: page0-guardrails
         type: gateway-guardrails-config
         rules:
-          - id: sentinelcall-safety
+          - id: page0-safety
             when: {}  # match all requests
             llm_input_guardrails:
-              - sentinelcall/input-safety-check
+              - page0/input-safety-check
             llm_output_guardrails:
-              - sentinelcall/pii-redaction
+              - page0/pii-redaction
             mcp_tool_pre_invoke_guardrails: []
             mcp_tool_post_invoke_guardrails: []
     """
@@ -220,17 +220,17 @@ class GuardrailsConfig:
         guardrails in addition to local checks.
         """
         return {
-            "name": "sentinelcall-guardrails",
+            "name": "page0-guardrails",
             "type": "gateway-guardrails-config",
             "rules": [
                 {
-                    "id": "sentinelcall-input-safety",
+                    "id": "page0-input-safety",
                     "when": {
                         "target": {
                             "operator": "or",
                             "conditions": {
                                 "metadata": {
-                                    "values": {"source": "sentinelcall"},
+                                    "values": {"source": "page0"},
                                     "condition": "in",
                                 },
                             },
@@ -243,20 +243,20 @@ class GuardrailsConfig:
                         },
                     },
                     "llm_input_guardrails": [
-                        "sentinelcall/input-safety-check",
+                        "page0/input-safety-check",
                     ],
                     "llm_output_guardrails": [
-                        "sentinelcall/pii-redaction",
+                        "page0/pii-redaction",
                     ],
                     "mcp_tool_pre_invoke_guardrails": [],
                     "mcp_tool_post_invoke_guardrails": [],
                 },
                 {
-                    "id": "sentinelcall-catch-all",
+                    "id": "page0-catch-all",
                     "when": {},
                     "llm_input_guardrails": [],
                     "llm_output_guardrails": [
-                        "sentinelcall/pii-redaction",
+                        "page0/pii-redaction",
                     ],
                     "mcp_tool_pre_invoke_guardrails": [],
                     "mcp_tool_post_invoke_guardrails": [],

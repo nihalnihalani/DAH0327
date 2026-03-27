@@ -1,8 +1,8 @@
-# SentinelCall — Autonomous Incident Response Agent
+# Pager0 — Autonomous Incident Response Agent
 
 ## Project Overview
 
-**SentinelCall** — An autonomous SRE agent that monitors infrastructure, detects anomalies, diagnoses root cause, calls the on-call engineer via AI phone call, and publishes tiered incident reports — all without human intervention.
+**Pager0** — An autonomous SRE agent that monitors infrastructure, detects anomalies, diagnoses root cause, calls the on-call engineer via AI phone call, and publishes tiered incident reports — all without human intervention.
 
 **Hackathon:** Deep Agents Hackathon | **Deadline:** Mar 27, 2026 @ 4:30 PM PDT
 

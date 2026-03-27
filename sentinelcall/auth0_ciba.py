@@ -1,6 +1,6 @@
 """Auth0 CIBA (Client-Initiated Backchannel Authentication) — phone call IS the auth.
 
-The SentinelCall agent initiates a CIBA authorization request when it needs an
+The Page0 agent initiates a CIBA authorization request when it needs an
 engineer's approval for a remediation action.  The Bland AI phone call acts as
 the out-of-band authentication channel: when the engineer verbally approves,
 the Bland webhook calls ``complete_ciba_from_voice`` to exchange the

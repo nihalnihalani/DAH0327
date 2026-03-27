@@ -99,7 +99,7 @@ const ScrambledTitle: React.FC = () => {
   useEffect(() => {
     if (mounted && scramblerRef.current) {
       const phrases = [
-        'SentinelCall',
+        'Page0',
         'Autonomous SRE Agent',
         '47 Second Resolution',
         'Zero Human Intervention',
@@ -127,7 +127,7 @@ const ScrambledTitle: React.FC = () => {
       className="text-white text-6xl font-bold tracking-wider justify-center"
       style={{ fontFamily: 'monospace' }}
     >
-      SentinelCall
+      Page0
     </h1>
   )
 }

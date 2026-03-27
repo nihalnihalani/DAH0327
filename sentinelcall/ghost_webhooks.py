@@ -130,7 +130,7 @@ def _register_single_webhook(
             {
                 "event": event,
                 "target_url": target_url,
-                "name": f"SentinelCall: {event}",
+                "name": f"Page0: {event}",
             }
         ]
     }
@@ -210,7 +210,7 @@ def handle_ghost_webhook(data: dict[str, Any]) -> dict[str, Any]:
     title = post.get("title", "")
     tags = [t.get("name", "") for t in post.get("tags", [])]
     slug = post.get("slug", "")
-    url = post.get("url", f"https://sentinelcall.ghost.io/{slug}/")
+    url = post.get("url", f"https://page0.ghost.io/{slug}/")
 
     is_incident = "incident" in tags
     is_critical = any(t in tags for t in ("sev-0", "sev-1", "p0", "p1"))

@@ -1,4 +1,4 @@
-"""SentinelCall FastAPI Dashboard — production-grade incident command center.
+"""Page0 FastAPI Dashboard — production-grade incident command center.
 
 Serves a single-page HTML dashboard with real-time SSE updates and exposes
 JSON API endpoints for the agent, metrics, incidents, and Overmind trace.
@@ -22,7 +22,7 @@ from sentinelcall.ghost_webhooks import router as ghost_router
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="SentinelCall", version="1.0.0")
+app = FastAPI(title="Page0", version="1.0.0")
 
 # Mount webhook routers
 app.include_router(bland_router)
@@ -40,12 +40,12 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SentinelCall</title>
+<title>Page0</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
 /* ==========================================================================
-   DESIGN TOKENS — Stitch: SentinelCall Final (Charcoal + Violet)
+   DESIGN TOKENS — Stitch: Page0 Final (Charcoal + Violet)
    ========================================================================== */
 :root {
   /* Backgrounds — true black */
@@ -219,7 +219,23 @@ body.light .theme-toggle::after{transform:translateX(18px);background:var(--oran
 .btn-trigger:hover{background:#dc2626;transform:translateY(-1px);box-shadow:0 4px 20px var(--red-bg);}
 .btn-trigger:active{transform:translateY(0);}
 .btn-trigger:disabled{opacity:.3;cursor:not-allowed;transform:none;box-shadow:none;}
+.btn-debate{
+  background:var(--violet);color:#fff;border:none;
+  padding:10px 26px;border-radius:8px;
+  font-family:inherit;font-size:13px;font-weight:600;
+  letter-spacing:0.6px;text-transform:uppercase;
+  cursor:pointer;transition:all .2s var(--ease);
+}
+.btn-debate:hover{background:#7c3aed;transform:translateY(-1px);box-shadow:0 4px 20px var(--violet-bg);}
+.btn-debate:active{transform:translateY(0);}
+.btn-debate:disabled{opacity:.3;cursor:not-allowed;transform:none;box-shadow:none;}
 .trig-status{font-size:12px;color:var(--text-3);}
+.debate-status{
+  font-size:12px;color:var(--text-2);display:none;align-items:center;gap:8px;
+}
+.debate-status.active{display:flex;}
+.debate-status .dot{width:7px;height:7px;}
+.debate-persona{color:var(--violet-2);font-weight:600;}
 
 /* === LAYOUT === */
 .main{position:relative;z-index:5;padding:20px 24px 40px;max-width:100%;margin:0 auto;}
@@ -586,7 +602,7 @@ body.light .theme-toggle::after{transform:translateX(18px);background:var(--oran
 
 <div class="header">
   <div class="h-left">
-    <a href="/" class="logo" style="text-decoration:none;color:inherit;">SENTINEL<span>CALL</span></a>
+    <a href="/" class="logo" style="text-decoration:none;color:inherit;">PAGE<span>0</span></a>
     <div class="h-sep"></div>
     <div class="h-tag">Autonomous Incident Response</div>
   </div>
@@ -598,6 +614,11 @@ body.light .theme-toggle::after{transform:translateX(18px);background:var(--oran
     </div>
     <span id="triggerStatus" class="trig-status"></span>
     <button id="triggerBtn" class="btn-trigger" onclick="triggerIncident()">Trigger Incident</button>
+    <button id="debateBtn" class="btn-debate" onclick="triggerDebate()">Trigger Debate</button>
+    <div id="debateStatus" class="debate-status">
+      <span class="dot" style="background:var(--violet);"></span>
+      <span>Debate: <span id="debateCallId" class="debate-persona">--</span> | <span id="debateState">--</span></span>
+    </div>
   </div>
 </div>
 
@@ -1066,6 +1087,22 @@ async function triggerIncident(){
   catch(e){st.textContent="Error: "+e.message;btn.disabled=false;setAS("idle");stopT();}
 }
 
+/* === DEBATE === */
+async function triggerDebate(){
+  const btn=document.getElementById("debateBtn"),ds=document.getElementById("debateStatus");
+  const did=document.getElementById("debateCallId"),dstate=document.getElementById("debateState");
+  btn.disabled=true;ds.classList.add("active");dstate.textContent="Initiating...";
+  addTL("Debate war room triggered by operator","step");
+  try{
+    const r=await fetch("/api/trigger-debate",{method:"POST"});
+    const d=await r.json();
+    if(d.error){dstate.textContent="Error: "+d.error;btn.disabled=false;return;}
+    did.textContent=d.call_id||"--";dstate.textContent="In progress (Hawk vs Dove)";
+    addTL("Debate call started: "+d.call_id,"step");
+  }catch(e){dstate.textContent="Error: "+e.message;btn.disabled=false;}
+  setTimeout(()=>{btn.disabled=false;},15000);
+}
+
 /* === SSE === */
 function connectSSE(){
   const es=new EventSource("/api/events");
@@ -1157,6 +1194,33 @@ async def api_trigger_incident(background_tasks: BackgroundTasks):
         )
     background_tasks.add_task(_run_pipeline)
     return {"status": "triggered", "message": "Incident response pipeline started."}
+
+
+@app.post("/api/trigger-debate")
+async def api_trigger_debate(background_tasks: BackgroundTasks):
+    """Trigger a debate call between two AI agents about the latest incident."""
+    from sentinelcall.bland_conference import start_debate_call
+    from sentinelcall.config import ON_CALL_PHONE
+
+    # Build incident context from the agent's latest incident or use defaults
+    incident_ctx = None
+    history = agent.get_incident_history()
+    if history:
+        latest = history[-1] if isinstance(history, list) else history
+        incident_ctx = {
+            "service": latest.get("service", "api-gateway"),
+            "severity": latest.get("severity", "SEV-2"),
+            "description": latest.get("description", "Elevated error rates detected."),
+            "root_cause": latest.get("root_cause", "Under investigation."),
+            "recommended_action": latest.get("recommended_action", "Pending analysis."),
+            "incident_id": latest.get("incident_id", None),
+        }
+
+    result = start_debate_call(
+        phone_number=ON_CALL_PHONE,
+        incident_context=incident_ctx,
+    )
+    return result
 
 
 @app.get("/api/agent-trace")

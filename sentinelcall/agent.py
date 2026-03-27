@@ -1,4 +1,4 @@
-"""SentinelCall Agent — autonomous incident response orchestrator.
+"""Page0 Agent — autonomous incident response orchestrator.
 
 Coordinates every module in the pipeline:
   Metrics -> Anomaly Detection -> LLM Diagnosis -> Dynamic Investigation ->
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 class SentinelCallAgent:
-    """The brain of SentinelCall — orchestrates the full incident response pipeline."""
+    """The brain of Page0 — orchestrates the full incident response pipeline."""
 
     def __init__(self) -> None:
         # Infrastructure & monitoring
@@ -69,7 +69,7 @@ class SentinelCallAgent:
         self.incidents: list[dict[str, Any]] = []
         self._event_subscribers: list[asyncio.Queue] = []
 
-        logger.info("SentinelCallAgent initialized — all modules ready")
+        logger.info("Page0 agent initialized — all modules ready")
 
     # ------------------------------------------------------------------
     # SSE event broadcasting
@@ -195,7 +195,7 @@ class SentinelCallAgent:
                     prompt=anomaly_text,
                     severity=severity,
                     system_prompt=(
-                        "You are SentinelCall, an autonomous SRE agent. "
+                        "You are Page0, an autonomous SRE agent. "
                         "Analyze these anomalies and provide root cause, "
                         "impact assessment, and remediation steps."
                     ),

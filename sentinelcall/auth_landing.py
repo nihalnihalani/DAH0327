@@ -1,4 +1,4 @@
-"""SentinelCall Auth0 Landing Page — production-grade SaaS login experience.
+"""Page0 Auth0 Landing Page — production-grade SaaS login experience.
 
 Serves a visually polished landing/login page at /auth with Auth0 CIBA
 branding, dark/light mode toggle, and professional hero + feature sections.
@@ -16,7 +16,7 @@ AUTH_LANDING_HTML = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SentinelCall — Sign In</title>
+<title>Page0 — Sign In</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -524,7 +524,7 @@ a{color:inherit;text-decoration:none;}
 <header class="header">
   <div class="header-inner">
     <div class="h-left">
-      <a href="/" class="logo">SENTINEL<span>.CALL</span></a>
+      <a href="/" class="logo">PAGE<span>.0</span></a>
       <ul class="nav">
         <li><a href="#features">Features</a></li>
         <li><a href="#stats">How It Works</a></li>
@@ -547,7 +547,7 @@ a{color:inherit;text-decoration:none;}
     Autonomous SRE Agent
   </div>
   <h1 class="fade-up fade-up-d1">Autonomous Incident Response in <em>47 Seconds</em></h1>
-  <p class="hero-sub fade-up fade-up-d2">SentinelCall monitors your infrastructure, detects anomalies, diagnoses root cause, and resolves incidents&mdash;all without human intervention.</p>
+  <p class="hero-sub fade-up fade-up-d2">Page0 monitors your infrastructure, detects anomalies, diagnoses root cause, and resolves incidents&mdash;all without human intervention.</p>
   <div class="hero-ctas fade-up fade-up-d3">
     <a href="/login" class="btn-primary">
       <!-- Auth0 shield icon -->
@@ -624,7 +624,7 @@ a{color:inherit;text-decoration:none;}
 <section class="cta-section">
   <div class="cta-card fade-up">
     <h2>Ready to Never Get Paged at 3 AM Again?</h2>
-    <p>Let SentinelCall handle the full incident lifecycle &mdash; from detection to resolution &mdash; while you sleep.</p>
+    <p>Let Page0 handle the full incident lifecycle &mdash; from detection to resolution &mdash; while you sleep.</p>
     <a href="/login" class="btn-primary">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
       Get Started with Auth0
@@ -635,7 +635,7 @@ a{color:inherit;text-decoration:none;}
 <!-- ======= FOOTER ======= -->
 <footer class="footer">
   <div class="footer-inner">
-    <div class="footer-left">&copy; 2026 <strong>SentinelCall</strong> &mdash; Deep Agents Hackathon</div>
+    <div class="footer-left">&copy; 2026 <strong>Page0</strong> &mdash; Deep Agents Hackathon</div>
     <ul class="footer-links">
       <li><a href="#features">Features</a></li>
       <li><a href="/dashboard">Dashboard</a></li>

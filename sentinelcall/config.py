@@ -1,4 +1,4 @@
-"""Centralized configuration for SentinelCall. All modules import from here."""
+"""Centralized configuration for Page0. All modules import from here."""
 import os
 from dotenv import load_dotenv
 

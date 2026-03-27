@@ -16,7 +16,7 @@ banner() {
     echo ""
     echo -e "${CYAN}${BOLD}"
     echo "  ╔═══════════════════════════════════════════════════════╗"
-    echo "  ║         SentinelCall — Autonomous SRE Agent          ║"
+    echo "  ║             Page0 — Autonomous SRE Agent              ║"
     echo "  ║     Deep Agents Hackathon | March 27, 2026           ║"
     echo "  ╚═══════════════════════════════════════════════════════╝"
     echo -e "${NC}"
@@ -174,7 +174,7 @@ ok "All modules loaded successfully"
 # ------------------------------------------------------------------
 # 8. Launch
 # ------------------------------------------------------------------
-step "Starting SentinelCall..."
+step "Starting Page0..."
 echo ""
 echo -e "${BOLD}  Landing:    ${CYAN}http://localhost:8000${NC}"
 echo -e "${BOLD}  Dashboard:  ${CYAN}http://localhost:8000/dashboard${NC}"

@@ -325,7 +325,7 @@ class TrueFoundryGateway:
             severity = "routine"
 
         system_prompt = (
-            "You are SentinelCall, an autonomous SRE incident response agent. "
+            "You are Page0, an autonomous SRE incident response agent. "
             "Analyze the following infrastructure anomalies and provide a "
             "structured diagnosis with timeline, root cause, impact assessment, "
             "and remediation plan. Be specific and actionable."
@@ -400,13 +400,13 @@ class TrueFoundryGateway:
     def get_gateway_config(self) -> dict:
         """Return the TrueFoundry gateway configuration used by this agent.
 
-        This shows how SentinelCall would configure TrueFoundry's
+        This shows how Page0 would configure TrueFoundry's
         priority-based routing for model escalation and fallback.
         """
         provider = self._provider_name
         return {
             "load_balancing": {
-                "name": "sentinelcall-model-escalation",
+                "name": "page0-model-escalation",
                 "type": "gateway-load-balancing-config",
                 "description": (
                     "Priority-based routing: Haiku for triage, Sonnet for "
@@ -418,7 +418,7 @@ class TrueFoundryGateway:
                         "id": "severity-escalation",
                         "when": {
                             "metadata": {
-                                "sentinelcall_severity": {"condition": "exists"}
+                                "page0_severity": {"condition": "exists"}
                             }
                         },
                         "strategy": "priority",
@@ -453,17 +453,17 @@ class TrueFoundryGateway:
                 ],
             },
             "guardrails": {
-                "name": "sentinelcall-guardrails",
+                "name": "page0-guardrails",
                 "type": "gateway-guardrails-config",
                 "rules": [
                     {
-                        "id": "sentinelcall-safety",
+                        "id": "page0-safety",
                         "when": {},
                         "llm_input_guardrails": [
-                            "sentinelcall/input-safety-check",
+                            "page0/input-safety-check",
                         ],
                         "llm_output_guardrails": [
-                            "sentinelcall/pii-redaction",
+                            "page0/pii-redaction",
                         ],
                         "mcp_tool_pre_invoke_guardrails": [],
                         "mcp_tool_post_invoke_guardrails": [],

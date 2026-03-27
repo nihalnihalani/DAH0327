@@ -1,7 +1,7 @@
-# Agent Policy: SentinelCall — Autonomous Incident Response
+# Agent Policy: Page0 — Autonomous Incident Response
 
 ## Purpose
-SentinelCall is an autonomous SRE agent that monitors infrastructure, detects anomalies, diagnoses root cause, escalates via phone call, and publishes tiered incident reports — all without human intervention.
+Page0 is an autonomous SRE agent that monitors infrastructure, detects anomalies, diagnoses root cause, escalates via phone call, and publishes tiered incident reports — all without human intervention.
 
 ## Decision Rules
 
