@@ -342,11 +342,17 @@ body.light .theme-toggle::after{transform:translateX(18px);background:var(--oran
 .o-node.pending .o-circle{opacity:0.4;border-color:rgba(255,255,255,0.4);background:rgba(0,0,0,0.4);}
 .o-node.active .o-circle{
   background:white;color:black;border-color:white;
-  box-shadow:0 0 20px rgba(255,255,255,0.3);
+  box-shadow:0 0 30px rgba(255,255,255,0.4),0 0 60px rgba(139,92,246,0.2);
   transform:scale(1.5);opacity:1;
+  animation:active-glow 1.5s ease-in-out infinite;
+}
+@keyframes active-glow{
+  0%,100%{box-shadow:0 0 30px rgba(255,255,255,0.4),0 0 60px rgba(139,92,246,0.2);}
+  50%{box-shadow:0 0 40px rgba(255,255,255,0.6),0 0 80px rgba(139,92,246,0.35);}
 }
 .o-node.complete .o-circle{
-  background:var(--bg-0);border-color:white;color:white;opacity:1;
+  background:var(--bg-0);border-color:rgba(20,184,166,0.8);color:var(--teal);opacity:1;
+  box-shadow:0 0 12px rgba(20,184,166,0.15);
 }
 .o-node.related .o-circle{
   background:rgba(255,255,255,0.5);color:black;border-color:white;
@@ -383,6 +389,7 @@ body.light .theme-toggle::after{transform:translateX(18px);background:var(--oran
   width:1px;height:12px;background:rgba(255,255,255,0.5);
 }
 @keyframes card-in{from{opacity:0;transform:translateX(-50%) translateY(8px);}to{opacity:1;transform:translateX(-50%) translateY(0);}}
+@keyframes dash-flow{from{stroke-dashoffset:12;}to{stroke-dashoffset:0;}}
 
 .o-card-header{padding:16px 16px 8px;display:flex;flex-direction:column;gap:8px;}
 .o-card-meta{display:flex;justify-content:space-between;align-items:center;}
@@ -576,7 +583,7 @@ body.light .theme-toggle::after{transform:translateX(18px);background:var(--oran
 
 <div class="header">
   <div class="h-left">
-    <div class="logo">SENTINEL<span>CALL</span></div>
+    <a href="/" class="logo" style="text-decoration:none;color:inherit;">SENTINEL<span>CALL</span></a>
     <div class="h-sep"></div>
     <div class="h-tag">Autonomous Incident Response</div>
   </div>
@@ -787,18 +794,49 @@ function positionNodes(){
     positions.push({x,y,id:s.id});
   });
 
-  // Draw orbit connector lines
-  for(let i=0;i<positions.length;i++){
-    const a=positions[i],b=positions[(i+1)%positions.length];
+  // Draw sequential flow lines connecting nodes in pipeline order
+  for(let i=0;i<positions.length-1;i++){
+    const a=positions[i],b=positions[i+1];
+    const line=document.createElementNS("http://www.w3.org/2000/svg","line");
+    line.setAttribute("x1",a.x);line.setAttribute("y1",a.y);
+    line.setAttribute("x2",b.x);line.setAttribute("y2",b.y);
+
+    const st1=ps[a.id],st2=ps[b.id];
+    const isIncidentRunning=!autoRotate;
+
+    if(st1==="complete"&&st2==="complete"){
+      // Completed segment — bright teal
+      line.setAttribute("stroke","rgba(20,184,166,0.6)");
+      line.setAttribute("stroke-width","2.5");
+      line.style.filter="drop-shadow(0 0 4px rgba(20,184,166,0.3))";
+    } else if((st1==="complete"&&st2==="active")||(st1==="active"&&st2==="pending")){
+      // Active edge — bright violet with glow
+      line.setAttribute("stroke","rgba(139,92,246,0.7)");
+      line.setAttribute("stroke-width","2.5");
+      line.style.filter="drop-shadow(0 0 6px rgba(139,92,246,0.4))";
+      // Add animated dash
+      line.setAttribute("stroke-dasharray","8,4");
+      line.style.animation="dash-flow 1s linear infinite";
+    } else if(isIncidentRunning){
+      // Pending segments during incident — dim but visible
+      line.setAttribute("stroke","rgba(255,255,255,0.1)");
+      line.setAttribute("stroke-width","1.5");
+      line.setAttribute("stroke-dasharray","4,4");
+    } else {
+      // Idle state — subtle circle connectors
+      line.setAttribute("stroke","rgba(255,255,255,0.06)");
+      line.setAttribute("stroke-width","1");
+    }
+    svg.appendChild(line);
+  }
+  // Close the orbit ring line (last to first) only when idle
+  if(autoRotate && positions.length>0){
+    const a=positions[positions.length-1],b=positions[0];
     const line=document.createElementNS("http://www.w3.org/2000/svg","line");
     line.setAttribute("x1",a.x);line.setAttribute("y1",a.y);
     line.setAttribute("x2",b.x);line.setAttribute("y2",b.y);
     line.setAttribute("stroke","rgba(255,255,255,0.06)");
     line.setAttribute("stroke-width","1");
-    // Color based on state
-    const st1=ps[a.id],st2=ps[b.id];
-    if(st1==="complete"&&st2==="complete"){line.setAttribute("stroke","rgba(20,184,166,0.3)");line.setAttribute("stroke-width","1.5");}
-    else if((st1==="complete"&&st2==="active")||(st1==="active")){line.setAttribute("stroke","rgba(139,92,246,0.3)");line.setAttribute("stroke-width","1.5");}
     svg.appendChild(line);
   }
 }
@@ -926,7 +964,7 @@ function resetP(){
   STEPS.forEach(s=>setPS(s.id,"pending"));pStart=Date.now();updT();
   if(pInt)clearInterval(pInt);pInt=setInterval(updT,100);
   document.getElementById("pTimer").className="pipe-timer on";
-  autoRotate=true;
+  autoRotate=false;
 }
 function stopT(){if(pInt)clearInterval(pInt);pInt=null;document.getElementById("pTimer").className="pipe-timer";}
 function updT(){if(!pStart)return;document.getElementById("pTimerT").textContent=((Date.now()-pStart)/1000).toFixed(1)+"s elapsed";}
@@ -1046,7 +1084,7 @@ function connectSSE(){
         document.getElementById("pTimerT").textContent="Completed in "+d.duration_seconds+"s";
         document.getElementById("triggerBtn").disabled=false;
         document.getElementById("triggerStatus").textContent="Resolved";
-        setAS("idle");refreshData();
+        setAS("idle");autoRotate=true;refreshData();
       }
       else if(ev==="incident_error"){
         addTL("ERROR: "+d.error,"error");
@@ -1078,7 +1116,7 @@ initPipe();initSp();connectSSE();refreshData();setInterval(refreshData,5000);
 </html>"""
 
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard():
     """Serve the main dashboard."""
     return DASHBOARD_HTML

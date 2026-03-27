@@ -524,11 +524,11 @@ a{color:inherit;text-decoration:none;}
 <header class="header">
   <div class="header-inner">
     <div class="h-left">
-      <a href="/auth" class="logo">SENTINEL<span>.CALL</span></a>
+      <a href="/" class="logo">SENTINEL<span>.CALL</span></a>
       <ul class="nav">
         <li><a href="#features">Features</a></li>
         <li><a href="#stats">How It Works</a></li>
-        <li><a href="/">Dashboard</a></li>
+        <li><a href="/dashboard">Dashboard</a></li>
       </ul>
     </div>
     <div class="h-right">
@@ -554,7 +554,7 @@ a{color:inherit;text-decoration:none;}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
       Sign in with Auth0
     </a>
-    <a href="/" class="btn-ghost">
+    <a href="/dashboard" class="btn-ghost">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
       Go to Dashboard
     </a>
@@ -638,7 +638,7 @@ a{color:inherit;text-decoration:none;}
     <div class="footer-left">&copy; 2026 <strong>SentinelCall</strong> &mdash; Deep Agents Hackathon</div>
     <ul class="footer-links">
       <li><a href="#features">Features</a></li>
-      <li><a href="/">Dashboard</a></li>
+      <li><a href="/dashboard">Dashboard</a></li>
       <li><a href="/login">Sign In</a></li>
     </ul>
   </div>
@@ -696,7 +696,13 @@ a{color:inherit;text-decoration:none;}
 </html>"""
 
 
-@router.get("/auth", response_class=HTMLResponse)
+@router.get("/", response_class=HTMLResponse)
 async def auth_landing():
-    """Serve the Auth0 login/landing page."""
+    """Serve the landing page (homepage)."""
+    return AUTH_LANDING_HTML
+
+
+@router.get("/auth", response_class=HTMLResponse)
+async def auth_landing_alias():
+    """Alias: /auth also serves the landing page."""
     return AUTH_LANDING_HTML
