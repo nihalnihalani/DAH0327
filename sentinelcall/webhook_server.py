@@ -1,8 +1,20 @@
-"""FastAPI webhook receiver for Bland AI call events and mid-call function calls.
+"""FastAPI webhook receiver for Bland AI call events and mid-call tool calls.
 
 Exposes two endpoints:
-- POST /bland/webhook     -- receives call status updates and transcripts
-- POST /bland/function-call -- receives mid-call function call requests
+- POST /bland/webhook        -- receives post-call webhook payloads from Bland
+- POST /bland/function-call  -- receives mid-call tool invocations from Bland
+
+The webhook payload from Bland contains the full call record including
+call_id, status, transcripts, variables, summary, and metadata.
+
+The function-call endpoint is hit by Bland custom tools (or pathway webhook
+nodes) during a live call.  We return JSON that Bland feeds back into the
+conversation via the tool's ``response`` extraction config.
+
+Ref:
+  - https://docs.bland.ai/tutorials/post-call-webhooks
+  - https://docs.bland.ai/tutorials/custom-tools
+  - https://docs.bland.ai/tutorials/webhooks
 
 Uses APIRouter so it can be mounted in the main dashboard app.
 """
@@ -83,24 +95,31 @@ _APPROVAL_PHRASES = [
 ]
 
 
-def parse_authorization(transcript: str | list[dict[str, str]]) -> dict[str, Any]:
+def parse_authorization(transcript: list[dict[str, Any]] | str) -> dict[str, Any]:
     """Parse engineer's verbal authorization from a call transcript.
 
+    Bland transcripts use ``user`` field with values:
+      - "user"         -- the human on the call
+      - "assistant"    -- the AI agent
+      - "robot"        -- system messages
+      - "agent-action" -- tool invocations
+
+    We only check lines from the human ("user").
+
     Args:
-        transcript: Either a string transcript or a list of
-            {"speaker": "...", "text": "..."} dicts.
+        transcript: Either a Bland transcripts array or a plain string.
 
     Returns:
-        Dict with authorized (bool), phrase_matched, and speaker info.
+        Dict with authorized (bool), phrase_matched, and confidence.
     """
     if isinstance(transcript, list):
-        # Only check the engineer's lines, not the agent's
-        engineer_lines = [
+        # Bland transcript entries: {"id": ..., "user": "user"|"assistant"|..., "text": "..."}
+        human_lines = [
             t.get("text", "").lower()
             for t in transcript
-            if t.get("speaker", "").lower() in ("engineer", "human", "user")
+            if t.get("user", "").lower() in ("user",)
         ]
-        text_to_check = " ".join(engineer_lines)
+        text_to_check = " ".join(human_lines)
     else:
         text_to_check = transcript.lower()
 
@@ -116,26 +135,36 @@ def parse_authorization(transcript: str | list[dict[str, str]]) -> dict[str, Any
 
 
 # ---------------------------------------------------------------------------
-# Webhook endpoints
+# Webhook endpoint — post-call notifications from Bland
 # ---------------------------------------------------------------------------
 
 @router.post("/bland/webhook")
 async def bland_webhook(request: Request) -> JSONResponse:
-    """Receive call status updates and transcripts from Bland AI.
+    """Receive post-call webhook payloads from Bland AI.
 
-    Bland sends webhooks at various stages: call.initiated, call.answered,
-    call.ended, etc. We store the latest state for each call_id.
+    Bland sends a POST with the full call record after the call completes.
+    Key fields in the payload (same as GET /v1/calls/{call_id}):
+      - call_id, status, completed, answered_by, call_ended_by
+      - transcripts (array of {id, user, text, created_at})
+      - concatenated_transcript (string)
+      - variables, summary, call_length, metadata, price, recording_url
     """
     try:
         body = await request.json()
     except Exception:
         return JSONResponse({"error": "invalid JSON"}, status_code=400)
 
-    call_id = body.get("call_id", body.get("id", "unknown"))
-    status = body.get("status", body.get("event", "unknown"))
-    transcript = body.get("transcripts", body.get("transcript", []))
+    # Bland uses "call_id" as the primary identifier
+    call_id = body.get("call_id", "unknown")
+    status = body.get("status", "unknown")
+    completed = body.get("completed", False)
+    transcripts = body.get("transcripts", [])
+    answered_by = body.get("answered_by")
 
-    logger.info("Bland webhook received: call_id=%s status=%s", call_id, status)
+    logger.info(
+        "Bland webhook received: call_id=%s status=%s completed=%s answered_by=%s",
+        call_id, status, completed, answered_by,
+    )
 
     # Store/update call result
     if call_id not in call_results:
@@ -143,7 +172,17 @@ async def bland_webhook(request: Request) -> JSONResponse:
 
     call_results[call_id].update({
         "status": status,
-        "transcript": transcript,
+        "completed": completed,
+        "answered_by": answered_by,
+        "call_ended_by": body.get("call_ended_by"),
+        "call_length": body.get("call_length"),
+        "transcripts": transcripts,
+        "concatenated_transcript": body.get("concatenated_transcript", ""),
+        "summary": body.get("summary", ""),
+        "variables": body.get("variables", {}),
+        "metadata": body.get("metadata", {}),
+        "recording_url": body.get("recording_url"),
+        "price": body.get("price"),
         "updated_at": time.time(),
         "raw_payload": body,
     })
@@ -153,8 +192,8 @@ async def bland_webhook(request: Request) -> JSONResponse:
     })
 
     # If call is completed, parse authorization from transcript
-    if status in ("completed", "ended", "call.ended"):
-        auth_result = parse_authorization(transcript)
+    if completed or status in ("completed",):
+        auth_result = parse_authorization(transcripts)
         call_results[call_id]["authorization"] = auth_result
         logger.info(
             "Call %s completed. Authorization: %s (phrase: %s)",
@@ -166,21 +205,30 @@ async def bland_webhook(request: Request) -> JSONResponse:
     return JSONResponse({"received": True, "call_id": call_id})
 
 
+# ---------------------------------------------------------------------------
+# Function-call endpoint — mid-call tool invocations from Bland
+# ---------------------------------------------------------------------------
+
 @router.post("/bland/function-call")
 async def bland_function_call(request: Request) -> JSONResponse:
-    """Handle mid-call function call requests from Bland AI.
+    """Handle mid-call tool invocation requests from Bland AI.
 
-    Bland invokes this endpoint when the AI agent on the call triggers one of
-    the registered tools: query_live_metrics, trigger_ciba_approval,
-    or escalate_to_vp.
+    Bland custom tools and webhook nodes POST to this URL during a live call.
+    The request body contains:
+      - name: the function name (from the tool's body config)
+      - call_id: the active call ID (from {{call_id}})
+      - parameters: the tool-specific parameters
+
+    The response JSON is parsed by Bland using the tool's ``response`` field
+    (JSONPath extraction) and fed back into the agent's conversation context.
     """
     try:
         body = await request.json()
     except Exception:
         return JSONResponse({"error": "invalid JSON"}, status_code=400)
 
-    function_name = body.get("name", body.get("function_name", body.get("tool", "unknown")))
-    parameters = body.get("parameters", body.get("arguments", body.get("args", {})))
+    function_name = body.get("name", "unknown")
+    parameters = body.get("parameters", {})
     call_id = body.get("call_id", "unknown")
 
     logger.info("Bland function call: %s with params=%s (call_id=%s)", function_name, parameters, call_id)
@@ -212,7 +260,7 @@ async def bland_function_call(request: Request) -> JSONResponse:
 # ---------------------------------------------------------------------------
 
 def _handle_query_live_metrics(parameters: dict[str, Any]) -> dict[str, Any]:
-    """Handle a query_live_metrics function call from the Bland AI agent."""
+    """Handle a query_live_metrics tool call from the Bland AI agent."""
     service_name = parameters.get("service_name", "api-gateway")
     metric_type = parameters.get("metric_type", "all")
 
@@ -229,7 +277,7 @@ def _handle_query_live_metrics(parameters: dict[str, Any]) -> dict[str, Any]:
 
 
 def _handle_trigger_ciba_approval(parameters: dict[str, Any], call_id: str) -> dict[str, Any]:
-    """Handle a trigger_ciba_approval function call.
+    """Handle a trigger_ciba_approval tool call.
 
     In production, this would initiate an Auth0 CIBA backchannel auth request.
     For demo, we simulate a successful approval.
@@ -259,7 +307,7 @@ def _handle_trigger_ciba_approval(parameters: dict[str, Any], call_id: str) -> d
 
 
 def _handle_escalate_to_vp(parameters: dict[str, Any], call_id: str) -> dict[str, Any]:
-    """Handle an escalate_to_vp function call."""
+    """Handle an escalate_to_vp tool call."""
     reason = parameters.get("reason", "Engineer requested escalation.")
 
     logger.info("Escalation to VP triggered: reason='%s' call=%s", reason, call_id)

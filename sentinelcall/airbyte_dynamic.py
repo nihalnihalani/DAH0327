@@ -7,13 +7,13 @@ to gather additional context relevant to the specific failure mode.
 For example, a payment-service error triggers automatic creation of a Stripe
 connector so the agent can inspect charges, disputes, and events — all without
 any pre-existing configuration.
+
+PyAirbyte API reference: https://airbytehq.github.io/PyAirbyte/airbyte.html
 """
 
 import logging
 import time
 from typing import Any
-
-from sentinelcall.config import AIRBYTE_API_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,11 @@ CONNECTOR_RECIPES: dict[str, dict[str, Any]] = {
         "source_name": "source-stripe",
         "display_name": "Stripe (dynamic — payment investigation)",
         "streams": ["charges", "disputes", "events", "balance_transactions"],
-        "config_keys": ["api_key", "account_id"],
+        "config_template": {
+            "client_secret": "",  # Stripe API secret key
+            "account_id": "",
+            "start_date": "2023-01-01T00:00:00Z",
+        },
         "rationale": (
             "Payment errors often correlate with upstream payment-provider "
             "issues. Pulling Stripe charges/disputes gives the agent direct "
@@ -43,7 +47,14 @@ CONNECTOR_RECIPES: dict[str, dict[str, Any]] = {
         "source_name": "source-postgres",
         "display_name": "Postgres (dynamic — connection pool investigation)",
         "streams": ["pg_stat_activity", "pg_locks", "pg_stat_user_tables"],
-        "config_keys": ["host", "port", "database", "username", "password"],
+        "config_template": {
+            "host": "",
+            "port": 5432,
+            "database": "",
+            "username": "",
+            "password": "",
+            "ssl_mode": {"mode": "prefer"},
+        },
         "rationale": (
             "Connection-pool exhaustion is best diagnosed by looking at live "
             "Postgres activity and lock contention data directly."
@@ -53,7 +64,13 @@ CONNECTOR_RECIPES: dict[str, dict[str, Any]] = {
         "source_name": "source-github",
         "display_name": "GitHub (dynamic — deployment correlation)",
         "streams": ["deployments", "commits", "pull_requests", "workflow_runs"],
-        "config_keys": ["access_token", "repository"],
+        "config_template": {
+            "credentials": {
+                "personal_access_token": "",
+            },
+            "repositories": [],
+            "start_date": "2023-01-01T00:00:00Z",
+        },
         "rationale": (
             "Latency spikes frequently follow new deployments. Pulling recent "
             "commits and deployment history helps the agent correlate timing."
@@ -63,20 +80,27 @@ CONNECTOR_RECIPES: dict[str, dict[str, Any]] = {
         "source_name": "source-datadog",
         "display_name": "Datadog (dynamic — memory profiling)",
         "streams": ["metrics", "events", "monitors"],
-        "config_keys": ["api_key", "app_key"],
+        "config_template": {
+            "api_key": "",
+            "application_key": "",
+        },
         "rationale": (
             "Memory leaks need historical heap/GC metrics. Pulling from the "
             "observability platform gives the agent trend data for diagnosis."
         ),
     },
     "cache_failure": {
-        "source_name": "source-redis",
-        "display_name": "Redis (dynamic — cache investigation)",
-        "streams": ["info", "slowlog", "keyspace"],
-        "config_keys": ["host", "port", "password"],
+        "source_name": "source-faker",
+        "display_name": "Simulated Redis (dynamic — cache investigation via faker)",
+        "streams": ["users", "products", "purchases"],
+        "config_template": {
+            "count": 500,
+            "seed": 99,
+        },
         "rationale": (
-            "Cache failures need direct Redis introspection — eviction rates, "
-            "slow commands, and keyspace stats pinpoint the root cause."
+            "Cache failures need Redis introspection. In demo mode, we use "
+            "source-faker to simulate ingesting cache diagnostic data, "
+            "demonstrating the dynamic connector creation pattern."
         ),
     },
 }
@@ -88,6 +112,13 @@ class DynamicConnectorManager:
     The key insight: rather than pre-configuring every possible data source,
     the agent decides DURING an incident which additional data it needs and
     dynamically creates the appropriate connector to fetch it.
+
+    PyAirbyte workflow for each dynamic connector:
+    1. ab.get_source(name, config={...}, install_if_missing=True)
+    2. source.check() to validate connectivity
+    3. source.select_streams([...]) to choose relevant streams
+    4. source.read() to sync data into local DuckDB cache
+    5. read_result["stream"].to_pandas() to access data
     """
 
     def __init__(self) -> None:
@@ -105,7 +136,8 @@ class DynamicConnectorManager:
 
         Args:
             incident_type: Key from CONNECTOR_RECIPES (e.g. "payment_service_error").
-            context: Optional additional context (affected service, timestamps, etc.).
+            context: Optional additional context with credential overrides
+                     (e.g. {"client_secret": "sk_live_..."}).
 
         Returns:
             Dict with connector info, discovered streams, and investigation data.
@@ -131,17 +163,20 @@ class DynamicConnectorManager:
             return self._create_real_connector(incident_type, recipe, context)
         return self._create_mock_connector(incident_type, recipe, context)
 
-    def discover_streams(self, source_name: str) -> list[str]:
-        """Discover available streams from a source via catalog introspection.
+    def discover_streams(self, source_name: str, config: dict[str, Any] | None = None) -> list[str]:
+        """Discover available streams from a source.
 
-        With real Airbyte, this performs actual catalog discovery. In mock mode
-        it returns the streams defined in the recipe.
+        With real Airbyte, uses source.get_available_streams() which returns
+        a list of stream name strings. In mock mode, returns recipe-defined streams.
         """
-        if AIRBYTE_AVAILABLE:
+        if AIRBYTE_AVAILABLE and config:
             try:
-                source = ab.get_source(source_name)
-                catalog = source.discovered_catalog
-                return [stream.name for stream in catalog.streams]
+                source = ab.get_source(
+                    source_name,
+                    config=config,
+                    install_if_missing=True,
+                )
+                return source.get_available_streams()
             except Exception as exc:
                 logger.warning("Stream discovery failed for %s: %s", source_name, exc)
 
@@ -179,27 +214,57 @@ class DynamicConnectorManager:
         recipe: dict[str, Any],
         context: dict[str, Any],
     ) -> dict[str, Any]:
-        """Create an actual Airbyte connector and read data."""
+        """Create an actual Airbyte connector and read data.
+
+        PyAirbyte real API:
+        1. ab.get_source(name, config, install_if_missing=True)
+        2. source.check()
+        3. source.select_streams(stream_list)
+        4. read_result = source.read()
+        5. read_result["stream"].to_pandas() for data access
+        """
         try:
+            # Build config by merging template with runtime context overrides
+            merged_config = {**recipe["config_template"]}
+            for key, value in context.items():
+                if key in merged_config and value:
+                    merged_config[key] = value
+
             source = ab.get_source(
                 recipe["source_name"],
-                config={key: context.get(key, "") for key in recipe["config_keys"]},
+                config=merged_config,
+                install_if_missing=True,
             )
             source.check()
-            source.select_streams(recipe["streams"])
 
-            cache = ab.get_default_cache()
-            result = source.read(cache=cache)
+            # Select only the streams we need for this investigation
+            available = source.get_available_streams()
+            desired = [s for s in recipe["streams"] if s in available]
+            if desired:
+                source.select_streams(desired)
+            else:
+                source.select_all_streams()
+
+            read_result = source.read()
+
+            # Collect row counts per stream
+            rows_read: dict[str, int] = {}
+            for stream_name in read_result.streams:
+                try:
+                    df = read_result[stream_name].to_pandas()
+                    rows_read[stream_name] = len(df)
+                except Exception:
+                    rows_read[stream_name] = 0
 
             record = {
                 "source_name": recipe["source_name"],
                 "display_name": recipe["display_name"],
                 "incident_type": incident_type,
-                "streams": recipe["streams"],
+                "streams": list(read_result.streams.keys()) if hasattr(read_result.streams, 'keys') else desired,
                 "rationale": recipe["rationale"],
                 "created_at": time.time(),
                 "status": "connected",
-                "rows_read": {s: 0 for s in recipe["streams"]},
+                "rows_read": rows_read,
             }
             self.created_connectors.append(record)
 
@@ -344,7 +409,7 @@ class DynamicConnectorManager:
                     {"title": "OOM Kill", "text": "Process payment-worker killed by OOM",
                      "timestamp": now - 60},
                 ],
-                "summary": "Memory usage climbing steadily: 76% → 88% → 95% over 10 min. "
+                "summary": "Memory usage climbing steadily: 76% -> 88% -> 95% over 10 min. "
                            "JVM heap at 92.8%. OOM kill event 1 minute ago.",
             }
 

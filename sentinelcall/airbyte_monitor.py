@@ -3,14 +3,15 @@
 Uses source-faker for demo data ingestion with DuckDB cache.
 Falls back to mock data generation if PyAirbyte is not installed,
 ensuring the demo works without real API keys or dependencies.
+
+PyAirbyte API reference: https://airbytehq.github.io/PyAirbyte/airbyte.html
+source-faker streams: users, products, purchases
 """
 
 import logging
 import random
 import time
 from typing import Any
-
-from sentinelcall.config import AIRBYTE_API_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -28,13 +29,14 @@ class AirbyteMonitor:
     """Monitors infrastructure metrics via Airbyte connectors.
 
     When PyAirbyte is available, uses source-faker with a DuckDB cache to
-    ingest realistic infrastructure metrics. Otherwise, falls back to
-    generating mock metrics that simulate a production environment.
+    ingest realistic data that is mapped onto virtual infrastructure services.
+    Otherwise, falls back to generating mock metrics that simulate a
+    production environment.
     """
 
     def __init__(self) -> None:
-        self.source = None
-        self.cache = None
+        self.source: Any = None
+        self.read_result: Any = None
         self._initialized = False
         self._last_pull_ts: float = 0
         self._mock_baseline = self._build_mock_baseline()
@@ -50,20 +52,32 @@ class AirbyteMonitor:
     # ------------------------------------------------------------------
 
     def _init_airbyte(self) -> None:
-        """Initialize Airbyte source-faker and DuckDB cache."""
+        """Initialize Airbyte source-faker and DuckDB cache.
+
+        PyAirbyte real API:
+        - ab.get_source("source-faker", config={...}, install_if_missing=True)
+        - source.check() validates connectivity
+        - source.select_all_streams() selects users/products/purchases
+        - source.read() returns ReadResult backed by local DuckDB cache
+        """
         self.source = ab.get_source(
             "source-faker",
             config={
-                "count": 500,
+                "count": 1000,
                 "seed": 42,
                 "parallelism": 4,
                 "always_updated": True,
+                "records_per_stream_slice": 500,
             },
+            install_if_missing=True,
         )
         self.source.check()
-        self.cache = ab.get_default_cache()  # DuckDB local cache
+        self.source.select_all_streams()
         self._initialized = True
-        logger.info("Airbyte source-faker connected with DuckDB cache")
+        logger.info(
+            "Airbyte source-faker connected — available streams: %s",
+            self.source.get_available_streams(),
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -88,6 +102,7 @@ class AirbyteMonitor:
                     "healthy": True,
                     "source": "airbyte/source-faker",
                     "cache": "duckdb",
+                    "streams": self.source.get_available_streams(),
                     "message": "Source connection verified",
                 }
             except Exception as exc:
@@ -108,10 +123,31 @@ class AirbyteMonitor:
     # ------------------------------------------------------------------
 
     def _pull_from_airbyte(self) -> dict[str, dict[str, Any]]:
-        """Read metrics from the Airbyte DuckDB cache."""
+        """Read metrics from the Airbyte source-faker via DuckDB cache.
+
+        PyAirbyte workflow:
+        1. source.read() syncs data into the default DuckDB cache
+        2. ReadResult["stream_name"] returns a CachedDataset
+        3. CachedDataset.to_pandas() converts to a DataFrame
+        4. We map faker data (users/products/purchases) onto virtual
+           infrastructure services for the demo.
+        """
         try:
-            result = self.source.read(cache=self.cache)
-            metrics: dict[str, dict[str, Any]] = {}
+            # source.read() uses the default DuckDB cache automatically
+            self.read_result = self.source.read()
+
+            # Count rows from each source-faker stream
+            stream_row_counts: dict[str, int] = {}
+            for stream_name in self.read_result.streams:
+                try:
+                    df = self.read_result[stream_name].to_pandas()
+                    stream_row_counts[stream_name] = len(df)
+                except Exception:
+                    stream_row_counts[stream_name] = 0
+
+            total_rows = sum(stream_row_counts.values())
+
+            # Map ingested faker data onto virtual infrastructure services
             service_names = [
                 "api-gateway",
                 "payment-service",
@@ -119,11 +155,9 @@ class AirbyteMonitor:
                 "database-primary",
                 "cache-cluster",
             ]
+            metrics: dict[str, dict[str, Any]] = {}
 
-            # Map ingested rows onto virtual services
-            for idx, name in enumerate(service_names):
-                dataset = result.cache.streams
-                row_count = sum(1 for _ in dataset) if dataset else 0
+            for name in service_names:
                 seed = hash(name) + int(time.time())
                 rng = random.Random(seed)
                 metrics[name] = {
@@ -134,14 +168,38 @@ class AirbyteMonitor:
                     "requests_per_sec": rng.randint(100, 5000),
                     "timestamp": time.time(),
                     "source": "airbyte",
-                    "rows_ingested": row_count,
+                    "rows_ingested": total_rows,
+                    "stream_details": stream_row_counts,
                 }
 
             self._last_pull_ts = time.time()
+            logger.info(
+                "Airbyte pull complete — %d total rows across %d streams",
+                total_rows,
+                len(stream_row_counts),
+            )
             return metrics
         except Exception as exc:
             logger.warning("Airbyte read failed, falling back to mock: %s", exc)
             return self._pull_from_mock()
+
+    def get_airbyte_dataframes(self) -> dict[str, Any]:
+        """Return raw Airbyte data as pandas DataFrames for deeper analysis.
+
+        This exposes the actual source-faker data (users, products, purchases)
+        for use by the anomaly detector or other downstream consumers.
+        """
+        if not self._initialized or not AIRBYTE_AVAILABLE or self.read_result is None:
+            return {"available": False, "reason": "Airbyte not initialized or no data"}
+
+        dataframes: dict[str, Any] = {}
+        for stream_name in self.read_result.streams:
+            try:
+                dataframes[stream_name] = self.read_result[stream_name].to_pandas()
+            except Exception as exc:
+                logger.warning("Failed to get DataFrame for %s: %s", stream_name, exc)
+
+        return {"available": True, "dataframes": dataframes}
 
     # ------------------------------------------------------------------
     # Mock data path
