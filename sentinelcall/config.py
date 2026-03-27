@@ -37,7 +37,7 @@ ON_CALL_PHONE = os.getenv("ON_CALL_PHONE", "+1234567890")
 ON_CALL_ENGINEER_ID = os.getenv("ON_CALL_ENGINEER_ID", "engineer-001")
 
 # GitHub
-GITHUB_REPO = os.getenv("GITHUB_REPO", "")
+GITHUB_REPO = os.getenv("GITHUB_REPO", "nihalnihalani/DAH0327")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 
 # Webhook
