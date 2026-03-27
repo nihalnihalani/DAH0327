@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Profile</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Profile</h1>
+<img src="{{ user.picture }}" alt="Profile picture" style="border-radius: 50%; width: 80px;">
+        <p><strong>Name:</strong> {{ user.name }}</p>
+        <p><strong>Email:</strong> {{ user.email }}</p>
+        <a href="/" class="btn btn-secondary">Home</a>
+        <a href="/logout" class="btn btn-secondary">Logout</a>
+    </div>
+</body>
+</html>

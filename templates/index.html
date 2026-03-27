@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DAH0327</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        {% if session %}
+            <h1>Welcome, {{ session.user.name or session.user.nickname or session.user.email }}!</h1>
+            <p>You are logged in.</p>
+            <a href="/profile" class="btn">View Profile</a>
+            <a href="/logout" class="btn btn-secondary">Logout</a>
+        {% else %}
+            <h1>DAH0327</h1>
+            <p>Please log in to continue.</p>
+            <a href="/login" class="btn">Login</a>
+        {% endif %}
+    </div>
+</body>
+</html>
