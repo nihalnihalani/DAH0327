@@ -1,8 +1,13 @@
 """Ghost Admin API setup + JWT authentication.
 
 Publishes posts to Ghost CMS via the Admin API using short-lived JWTs.
+Uses ``?source=html`` so we can send raw HTML that Ghost converts to its
+internal Lexical format automatically.
+
 Falls back to in-memory storage when Ghost is not configured, so the
 demo works without real API keys.
+
+Ref: https://docs.ghost.org/admin-api/
 """
 
 import logging
@@ -21,12 +26,28 @@ from sentinelcall.config import GHOST_URL, GHOST_ADMIN_API_KEY
 
 logger = logging.getLogger(__name__)
 
+# Valid Ghost post visibility values:
+#   "public"  — accessible to anyone
+#   "members" — accessible to all signed-in members (free + paid)
+#   "paid"    — accessible to paid members only
+#   "tiers"   — accessible to members of specific tiers (requires tiers field)
+VALID_VISIBILITIES = {"public", "members", "paid", "tiers"}
+
 
 class GhostPublisher:
-    """Manage Ghost Admin API interactions with JWT authentication."""
+    """Manage Ghost Admin API interactions with JWT authentication.
+
+    Authentication uses short-lived HS256 JWTs generated from the Admin API
+    key (format ``id:secret``).  The hex-encoded secret is decoded to raw
+    bytes before signing.
+
+    JWT header: ``{"alg": "HS256", "typ": "JWT", "kid": "<id>"}``
+    JWT payload: ``{"iat": <now>, "exp": <now+5min>, "aud": "/admin/"}``
+    Auth header: ``Authorization: Ghost <token>``
+    """
 
     def __init__(self, ghost_url: str | None = None, admin_api_key: str | None = None):
-        self.ghost_url = (ghost_url or GHOST_URL).rstrip("/")
+        self.ghost_url = (ghost_url or GHOST_URL or "").rstrip("/")
         self.admin_api_key = admin_api_key or GHOST_ADMIN_API_KEY
         self._in_memory_posts: list[dict[str, Any]] = []
         self._configured = bool(self.ghost_url and self.admin_api_key and pyjwt)
@@ -41,12 +62,18 @@ class GhostPublisher:
                 reasons.append("PyJWT not installed")
             logger.warning("Ghost not configured (%s). Using in-memory fallback.", ", ".join(reasons))
 
+    # -- Authentication --------------------------------------------------------
+
     def get_ghost_token(self) -> str:
         """Generate a short-lived Ghost Admin API JWT.
 
-        The GHOST_ADMIN_API_KEY is in the format ``id:secret``. The JWT uses
-        HS256 with the ``kid`` header set to the key id, audience ``/admin/``,
-        and a 5-minute expiry.
+        The ``GHOST_ADMIN_API_KEY`` is in ``id:secret`` format.  The secret
+        half is hex-encoded; we decode it to raw bytes before signing.
+
+        Ghost requires:
+          - Header: ``alg=HS256``, ``typ=JWT``, ``kid=<id>``
+          - Payload: ``iat`` (now, seconds), ``exp`` (now + 5 min), ``aud="/admin/"``
+          - Timestamps in **seconds** since unix epoch (not milliseconds).
         """
         if not self.admin_api_key or not pyjwt:
             raise RuntimeError("Cannot generate Ghost token: API key or PyJWT unavailable.")
@@ -60,11 +87,11 @@ class GhostPublisher:
             "exp": iat + 5 * 60,
             "aud": "/admin/",
         }
-        token = pyjwt.encode(
+        token: str = pyjwt.encode(
             payload,
             secret_bytes,
             algorithm="HS256",
-            headers={"kid": key_id},
+            headers={"kid": key_id, "typ": "JWT"},
         )
         return token
 
@@ -75,9 +102,19 @@ class GhostPublisher:
             "Content-Type": "application/json",
         }
 
-    def _api_url(self, path: str) -> str:
-        """Build a full Ghost Admin API URL."""
-        return f"{self.ghost_url}/ghost/api/admin/{path.lstrip('/')}"
+    def _api_url(self, path: str, query: str = "") -> str:
+        """Build a full Ghost Admin API URL.
+
+        Args:
+            path: API path relative to ``/ghost/api/admin/``.
+            query: Optional query string (without leading ``?``).
+        """
+        url = f"{self.ghost_url}/ghost/api/admin/{path.lstrip('/')}"
+        if query:
+            url = f"{url}?{query}"
+        return url
+
+    # -- Posts -----------------------------------------------------------------
 
     def publish_post(
         self,
@@ -86,35 +123,55 @@ class GhostPublisher:
         tags: list[str] | None = None,
         visibility: str = "public",
         featured: bool = False,
+        status: str = "published",
+        tiers: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
-        """Publish a post to Ghost CMS.
+        """Publish (or draft) a post to Ghost CMS.
+
+        Uses ``POST /ghost/api/admin/posts/?source=html`` so Ghost
+        automatically converts the HTML body into its Lexical editor format.
 
         Args:
-            title: Post title.
+            title: Post title (the only required field).
             html: Post body as HTML.
-            tags: List of tag names to attach.
-            visibility: ``"public"`` or ``"members"`` (members-only).
+            tags: Tag names — sent as short-form ``["name"]`` or long-form
+                ``[{"name": "..."}]`` (Ghost accepts both).
+            visibility: One of ``"public"``, ``"members"``, ``"paid"``,
+                or ``"tiers"``.  When ``"tiers"`` is used, pass the
+                *tiers* argument as well.
             featured: Whether to feature the post.
+            status: ``"published"`` (default) or ``"draft"``.
+            tiers: List of tier dicts ``[{"slug": "..."}]`` for tier-gated
+                visibility.  Only used when *visibility* is ``"tiers"``.
 
         Returns:
-            Dict with ``id``, ``url``, ``title``, and ``slug`` of the published post.
+            Dict with ``id``, ``url``, ``title``, ``slug`` (and ``mock=True``
+            when the in-memory fallback is used).
         """
+        if visibility not in VALID_VISIBILITIES:
+            logger.warning(
+                "Unknown Ghost visibility %r; defaulting to 'public'.", visibility
+            )
+            visibility = "public"
+
         post_data: dict[str, Any] = {
             "title": title,
             "html": html,
-            "status": "published",
+            "status": status,
             "visibility": visibility,
             "featured": featured,
         }
         if tags:
             post_data["tags"] = [{"name": t} for t in tags]
+        if visibility == "tiers" and tiers:
+            post_data["tiers"] = tiers
 
         if not self._configured:
             return self._mock_publish(post_data)
 
         try:
             response = requests.post(
-                self._api_url("posts/"),
+                self._api_url("posts/", query="source=html"),
                 json={"posts": [post_data]},
                 headers=self._headers(),
                 timeout=15,
@@ -145,7 +202,8 @@ class GhostPublisher:
             if tag:
                 return [
                     p for p in self._in_memory_posts
-                    if tag in [t["name"] for t in p.get("tags", [])]
+                    if tag in [t.get("name", t) if isinstance(t, dict) else t
+                               for t in p.get("tags", [])]
                 ]
             return list(self._in_memory_posts)
 
@@ -194,7 +252,7 @@ class GhostPublisher:
             logger.error("Ghost delete failed for %s: %s", post_id, exc)
             return False
 
-    # -- Fallback helpers --
+    # -- Fallback helpers ------------------------------------------------------
 
     def _mock_publish(self, post_data: dict[str, Any]) -> dict[str, Any]:
         """Store a post in memory and return a mock response."""
@@ -209,6 +267,8 @@ class GhostPublisher:
             "html": post_data.get("html", ""),
             "visibility": post_data.get("visibility", "public"),
             "tags": post_data.get("tags", []),
+            "featured": post_data.get("featured", False),
+            "status": post_data.get("status", "published"),
             "mock": True,
         }
         self._in_memory_posts.append(record)

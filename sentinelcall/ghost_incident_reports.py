@@ -1,16 +1,21 @@
 """Tiered incident report publishing via Ghost CMS.
 
-Publishes TWO reports per incident:
-  - Executive report (public): high-level status, impact, ETA, action taken.
-  - Engineering report (members-only): full root cause, metrics, data sources,
-    remediation steps, Macroscope analysis, call transcript, and Overmind trace.
+Publishes TWO reports per incident using Ghost's membership visibility tiers:
+  - Executive report (``visibility="public"``): high-level status, impact,
+    ETA, action taken — accessible to anyone.
+  - Engineering report (``visibility="paid"``): full root cause, metrics,
+    data sources, remediation steps, Macroscope analysis, call transcript,
+    and Overmind trace — restricted to paid members (i.e. the engineering
+    team with paid Ghost membership).
 
 This is the CREATIVE use of Ghost — not just a blog, but a structured incident
-communication platform with audience-based visibility tiers.
+communication platform with audience-based visibility tiers.  Ghost supports
+four visibility levels: ``public``, ``members``, ``paid``, ``tiers``.
+
+Ref: https://docs.ghost.org/admin-api/posts/creating-a-post
 """
 
 import logging
-import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -273,6 +278,6 @@ class IncidentReportPublisher:
             title=title,
             html=html,
             tags=tags,
-            visibility="members",
+            visibility="paid",
             featured=False,
         )
