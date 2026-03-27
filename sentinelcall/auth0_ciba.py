@@ -1,128 +1,270 @@
-"""Auth0 CIBA (Client Initiated Backchannel Authentication).
+"""Auth0 CIBA (Client-Initiated Backchannel Authentication) — phone call IS the auth.
 
-When the on-call engineer verbally approves remediation on the Bland AI call,
-this module initiates a CIBA flow — Auth0 pushes an auth request to the
-engineer's registered device. Their tap/approval mints a token that
-authorizes the agent to execute remediation actions.
+The SentinelCall agent initiates a CIBA authorization request when it needs an
+engineer's approval for a remediation action.  The Bland AI phone call acts as
+the out-of-band authentication channel: when the engineer verbally approves,
+the Bland webhook calls ``complete_ciba_from_voice`` to exchange the
+``auth_req_id`` for an access token.
 
-This is the creative/non-obvious Auth0 usage: the phone call IS the auth
-channel, not a browser redirect.
+Falls back to a simulated flow when Auth0 CIBA is not available (free tier).
 """
-import os
+
 import time
+import uuid
+import logging
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Optional
+
 import requests
-from dotenv import load_dotenv
 
-load_dotenv()
+from sentinelcall.config import AUTH0_DOMAIN, AUTH0_CLIENT_ID, AUTH0_CLIENT_SECRET
 
-AUTH0_DOMAIN = os.environ['AUTH0_DOMAIN']
-AUTH0_CLIENT_ID = os.environ['AUTH0_CLIENT_ID']
-AUTH0_CLIENT_SECRET = os.environ['AUTH0_CLIENT_SECRET']
-
-# Scope granted when engineer approves remediation
-REMEDIATION_SCOPE = 'openid profile email remediate:incident'
-
-# How long to poll for engineer approval (seconds)
-CIBA_POLL_TIMEOUT = 120
-CIBA_POLL_INTERVAL = 5
+logger = logging.getLogger(__name__)
 
 
-def initiate_ciba(engineer_login_hint: str, incident_id: str, binding_message: str = None) -> dict:
-    """Start a CIBA auth request for the engineer.
+class ApprovalStatus(str, Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    DENIED = "denied"
+    EXPIRED = "expired"
 
-    Auth0 pushes a notification to the engineer's device asking them to
-    approve the remediation action.
 
-    Args:
-        engineer_login_hint: Engineer's email or phone registered with Auth0.
-        incident_id: Used in the binding message so the engineer sees context.
-        binding_message: Short human-readable string shown on the push notification.
+@dataclass
+class CIBARequest:
+    """Tracks a single CIBA authorization request."""
 
-    Returns:
-        Dict with 'auth_req_id' and 'expires_in'.
+    auth_req_id: str
+    engineer_id: str
+    action: str
+    status: ApprovalStatus = ApprovalStatus.PENDING
+    access_token: Optional[str] = None
+    created_at: float = field(default_factory=time.time)
+    expires_in: int = 300  # 5-minute window for voice approval
+
+    @property
+    def is_expired(self) -> bool:
+        return time.time() > self.created_at + self.expires_in
+
+
+class CIBAManager:
+    """Manages CIBA backchannel authorization flows.
+
+    Live mode: POSTs to Auth0 ``/bc-authorize`` and polls / exchanges tokens
+    via ``/oauth/token`` with grant_type ``urn:openid:params:grant-type:ciba``.
+
+    Demo mode: simulates the entire flow with realistic payloads and timing.
     """
-    if binding_message is None:
-        binding_message = f'Approve SentinelCall remediation for {incident_id}'
 
-    resp = requests.post(
-        f'https://{AUTH0_DOMAIN}/bc-authorize',
-        json={
-            'client_id': AUTH0_CLIENT_ID,
-            'client_secret': AUTH0_CLIENT_SECRET,
-            'login_hint': engineer_login_hint,
-            'scope': REMEDIATION_SCOPE,
-            'binding_message': binding_message,
-            'request_expiry': CIBA_POLL_TIMEOUT,
-        },
-    )
-    resp.raise_for_status()
-    return resp.json()  # contains auth_req_id, expires_in, interval
+    def __init__(self) -> None:
+        self._requests: dict[str, CIBARequest] = {}
+        self.is_live = bool(AUTH0_DOMAIN and AUTH0_CLIENT_ID and AUTH0_CLIENT_SECRET)
 
+        if self.is_live:
+            logger.info("CIBAManager: Auth0 credentials detected — using live CIBA")
+        else:
+            logger.info("CIBAManager: No Auth0 credentials — using simulated CIBA flow")
 
-def poll_for_token(auth_req_id: str, interval: int = CIBA_POLL_INTERVAL) -> dict | None:
-    """Poll the token endpoint until the engineer approves or the request expires.
+    # ------------------------------------------------------------------
+    # Initiate
+    # ------------------------------------------------------------------
 
-    Returns the token response dict on approval, or None on timeout/denial.
-    """
-    deadline = time.time() + CIBA_POLL_TIMEOUT
-    while time.time() < deadline:
-        resp = requests.post(
-            f'https://{AUTH0_DOMAIN}/oauth/token',
-            json={
-                'grant_type': 'urn:openid:params:grant-type:ciba',
-                'client_id': AUTH0_CLIENT_ID,
-                'client_secret': AUTH0_CLIENT_SECRET,
-                'auth_req_id': auth_req_id,
-            },
+    def initiate_ciba_approval(self, engineer_id: str, action: str) -> dict:
+        """Start a CIBA authorization request.
+
+        Args:
+            engineer_id: Login hint identifying the on-call engineer.
+            action: Human-readable description of the remediation action
+                    (e.g. "Roll back deployment v2.3.1 on prod-api-cluster").
+
+        Returns:
+            dict with ``auth_req_id``, ``expires_in``, ``interval``, ``status``.
+        """
+        if self.is_live:
+            return self._initiate_live(engineer_id, action)
+        return self._initiate_simulated(engineer_id, action)
+
+    # ------------------------------------------------------------------
+    # Complete (called by Bland webhook on voice approval)
+    # ------------------------------------------------------------------
+
+    def complete_ciba_from_voice(self, auth_req_id: str) -> dict:
+        """Exchange CIBA auth_req_id for an access token after voice approval.
+
+        This is called by the Bland AI webhook handler when the engineer
+        verbally approves the remediation action during the phone call.
+
+        Returns:
+            dict with ``access_token``, ``token_type``, ``expires_in``, ``status``.
+        """
+        if self.is_live:
+            return self._complete_live(auth_req_id)
+        return self._complete_simulated(auth_req_id)
+
+    # ------------------------------------------------------------------
+    # Poll / Check
+    # ------------------------------------------------------------------
+
+    def check_approval_status(self, auth_req_id: str) -> dict:
+        """Check the current status of a CIBA request.
+
+        Returns:
+            dict with ``auth_req_id``, ``status``, ``engineer_id``, ``action``,
+            ``elapsed_seconds``.
+        """
+        req = self._requests.get(auth_req_id)
+        if not req:
+            return {"auth_req_id": auth_req_id, "status": "not_found"}
+
+        if req.is_expired and req.status == ApprovalStatus.PENDING:
+            req.status = ApprovalStatus.EXPIRED
+
+        return {
+            "auth_req_id": auth_req_id,
+            "status": req.status.value,
+            "engineer_id": req.engineer_id,
+            "action": req.action,
+            "elapsed_seconds": round(time.time() - req.created_at, 1),
+        }
+
+    # ------------------------------------------------------------------
+    # Demo helper
+    # ------------------------------------------------------------------
+
+    def simulate_approval(self, auth_req_id: str) -> dict:
+        """For demo: instantly simulate a successful voice approval.
+
+        Transitions the CIBA request to APPROVED and generates a mock
+        access token — useful for live demos without a real phone call.
+        """
+        req = self._requests.get(auth_req_id)
+        if not req:
+            return {"error": "auth_req_id not found", "auth_req_id": auth_req_id}
+
+        req.status = ApprovalStatus.APPROVED
+        req.access_token = f"ciba_at_{uuid.uuid4().hex[:16]}"
+
+        logger.info(
+            "CIBAManager: simulated approval for %s (engineer=%s)",
+            auth_req_id,
+            req.engineer_id,
         )
+        return {
+            "auth_req_id": auth_req_id,
+            "status": "approved",
+            "access_token": req.access_token,
+            "token_type": "Bearer",
+            "expires_in": 3600,
+            "source": "simulated",
+        }
+
+    def list_requests(self) -> list[dict]:
+        """Return all tracked CIBA requests (for dashboard display)."""
+        return [self.check_approval_status(rid) for rid in self._requests]
+
+    # ------------------------------------------------------------------
+    # Live Auth0 CIBA
+    # ------------------------------------------------------------------
+
+    def _initiate_live(self, engineer_id: str, action: str) -> dict:
+        resp = requests.post(
+            f"https://{AUTH0_DOMAIN}/bc-authorize",
+            json={
+                "client_id": AUTH0_CLIENT_ID,
+                "client_secret": AUTH0_CLIENT_SECRET,
+                "login_hint": f"eng:{engineer_id}",
+                "scope": "openid profile remediation:approve",
+                "binding_message": action[:128],  # CIBA spec limits binding_message
+                "requested_expiry": 300,
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
         data = resp.json()
 
-        if resp.status_code == 200:
-            return data  # approved — contains access_token, id_token
+        auth_req_id = data["auth_req_id"]
+        self._requests[auth_req_id] = CIBARequest(
+            auth_req_id=auth_req_id,
+            engineer_id=engineer_id,
+            action=action,
+            expires_in=data.get("expires_in", 300),
+        )
+        logger.info("CIBAManager: live CIBA initiated — auth_req_id=%s", auth_req_id)
+        return {
+            "auth_req_id": auth_req_id,
+            "expires_in": data.get("expires_in", 300),
+            "interval": data.get("interval", 5),
+            "status": "pending",
+            "source": "auth0_ciba",
+        }
 
-        error = data.get('error', '')
-        if error == 'authorization_pending':
-            time.sleep(interval)
-            continue
-        if error == 'slow_down':
-            interval = min(interval + 5, 30)
-            time.sleep(interval)
-            continue
-        if error in ('access_denied', 'expired_token'):
-            return None  # engineer denied or timed out
-        # unexpected error — surface it
+    def _complete_live(self, auth_req_id: str) -> dict:
+        resp = requests.post(
+            f"https://{AUTH0_DOMAIN}/oauth/token",
+            json={
+                "client_id": AUTH0_CLIENT_ID,
+                "client_secret": AUTH0_CLIENT_SECRET,
+                "grant_type": "urn:openid:params:grant-type:ciba",
+                "auth_req_id": auth_req_id,
+            },
+            timeout=10,
+        )
         resp.raise_for_status()
+        data = resp.json()
 
-    return None  # timed out
+        req = self._requests.get(auth_req_id)
+        if req:
+            req.status = ApprovalStatus.APPROVED
+            req.access_token = data["access_token"]
 
+        logger.info("CIBAManager: live CIBA completed — auth_req_id=%s", auth_req_id)
+        return {
+            "auth_req_id": auth_req_id,
+            "access_token": data["access_token"],
+            "token_type": data.get("token_type", "Bearer"),
+            "expires_in": data.get("expires_in", 3600),
+            "status": "approved",
+            "source": "auth0_ciba",
+        }
 
-def request_remediation_approval(
-    engineer_login_hint: str,
-    incident_id: str,
-) -> tuple[bool, 'str | None']:
-    """Full CIBA flow: initiate + poll.
+    # ------------------------------------------------------------------
+    # Simulated CIBA (demo / free-tier fallback)
+    # ------------------------------------------------------------------
 
-    Called by the agent after Bland AI transcript indicates verbal approval.
-    The engineer still taps their phone to cryptographically confirm.
+    def _initiate_simulated(self, engineer_id: str, action: str) -> dict:
+        auth_req_id = f"ciba_{uuid.uuid4().hex[:12]}"
+        self._requests[auth_req_id] = CIBARequest(
+            auth_req_id=auth_req_id,
+            engineer_id=engineer_id,
+            action=action,
+        )
+        logger.info(
+            "CIBAManager: simulated CIBA initiated — auth_req_id=%s, engineer=%s",
+            auth_req_id,
+            engineer_id,
+        )
+        return {
+            "auth_req_id": auth_req_id,
+            "expires_in": 300,
+            "interval": 5,
+            "status": "pending",
+            "source": "simulated",
+        }
 
-    Returns:
-        (approved: bool, access_token: str | None)
-    """
-    try:
-        ciba = initiate_ciba(engineer_login_hint, incident_id)
-    except requests.HTTPError as e:
-        print(f'[CIBA] Failed to initiate: {e}')
-        return False, None
+    def _complete_simulated(self, auth_req_id: str) -> dict:
+        req = self._requests.get(auth_req_id)
+        if not req:
+            return {"error": "auth_req_id not found", "auth_req_id": auth_req_id}
 
-    auth_req_id = ciba['auth_req_id']
-    poll_interval = ciba.get('interval', CIBA_POLL_INTERVAL)
+        req.status = ApprovalStatus.APPROVED
+        req.access_token = f"ciba_at_{uuid.uuid4().hex[:16]}"
 
-    print(f'[CIBA] Waiting for engineer approval (auth_req_id={auth_req_id[:12]}…)')
-    token_response = poll_for_token(auth_req_id, interval=poll_interval)
-
-    if token_response:
-        print('[CIBA] Engineer approved — remediation authorized.')
-        return True, token_response['access_token']
-    else:
-        print('[CIBA] Engineer denied or timed out.')
-        return False, None
+        logger.info("CIBAManager: simulated CIBA completed — auth_req_id=%s", auth_req_id)
+        return {
+            "auth_req_id": auth_req_id,
+            "access_token": req.access_token,
+            "token_type": "Bearer",
+            "expires_in": 3600,
+            "status": "approved",
+            "source": "simulated",
+        }

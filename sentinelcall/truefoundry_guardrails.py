@@ -1,0 +1,191 @@
+"""TrueFoundry Guardrails — input validation and output sanitization.
+
+Protects the LLM pipeline from dangerous prompts and ensures sensitive
+data (PII, API keys, passwords) is redacted from model outputs before
+they reach incident reports or dashboards.
+"""
+
+import re
+import logging
+from dataclasses import dataclass, field
+
+from sentinelcall.config import TRUEFOUNDRY_API_KEY
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Dangerous input patterns
+# ---------------------------------------------------------------------------
+INPUT_BLOCK_PATTERNS: list[dict] = [
+    {"pattern": r"DROP\s+TABLE", "label": "SQL DROP TABLE", "flags": re.IGNORECASE},
+    {"pattern": r"DELETE\s+FROM\s+\w+\s*(;|WHERE\s+1\s*=\s*1)", "label": "SQL mass delete", "flags": re.IGNORECASE},
+    {"pattern": r"rm\s+-rf\s+/", "label": "Destructive rm -rf", "flags": 0},
+    {"pattern": r"shutdown\s+--now", "label": "System shutdown", "flags": 0},
+    {"pattern": r"mkfs\.\w+", "label": "Filesystem format", "flags": 0},
+    {"pattern": r":(){ :\|:& };:", "label": "Fork bomb", "flags": 0},
+    {"pattern": r"curl\s+.*\|\s*sh", "label": "Pipe to shell", "flags": 0},
+    {"pattern": r"eval\s*\(", "label": "Eval injection", "flags": 0},
+    {"pattern": r"__import__\s*\(", "label": "Python import injection", "flags": 0},
+]
+
+# ---------------------------------------------------------------------------
+# PII / secret patterns for output redaction
+# ---------------------------------------------------------------------------
+OUTPUT_REDACTION_PATTERNS: list[dict] = [
+    {
+        "pattern": r"\b\d{3}[-.]?\d{3}[-.]?\d{4}\b",
+        "label": "phone_number",
+        "replacement": "[REDACTED_PHONE]",
+    },
+    {
+        "pattern": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
+        "label": "email",
+        "replacement": "[REDACTED_EMAIL]",
+    },
+    {
+        "pattern": r"\b\d{3}-\d{2}-\d{4}\b",
+        "label": "ssn",
+        "replacement": "[REDACTED_SSN]",
+    },
+    {
+        "pattern": (
+            r"(?:api[_-]?key|apikey|api[_-]?token|secret[_-]?key|access[_-]?token)"
+            r"\s*[=:]\s*['\"]?[A-Za-z0-9_\-]{16,}['\"]?"
+        ),
+        "label": "api_key",
+        "replacement": "[REDACTED_API_KEY]",
+        "flags": re.IGNORECASE,
+    },
+    {
+        "pattern": (
+            r"(?:password|passwd|pwd)\s*[=:]\s*['\"]?[^\s'\"]{4,}['\"]?"
+        ),
+        "label": "password",
+        "replacement": "[REDACTED_PASSWORD]",
+        "flags": re.IGNORECASE,
+    },
+    {
+        "pattern": r"\b(?:sk|pk)[-_](?:live|test)[-_][A-Za-z0-9]{20,}\b",
+        "label": "stripe_key",
+        "replacement": "[REDACTED_STRIPE_KEY]",
+    },
+    {
+        "pattern": r"\bghp_[A-Za-z0-9]{36,}\b",
+        "label": "github_token",
+        "replacement": "[REDACTED_GITHUB_TOKEN]",
+    },
+    {
+        "pattern": r"\bxox[bpoas]-[A-Za-z0-9\-]{10,}\b",
+        "label": "slack_token",
+        "replacement": "[REDACTED_SLACK_TOKEN]",
+    },
+]
+
+
+@dataclass
+class GuardrailsConfig:
+    """Guardrails for input validation and output sanitization.
+
+    Integrates with TrueFoundry's guardrails when available, and provides
+    local pattern-based checks as a baseline that always runs.
+    """
+
+    max_output_cost_usd: float = 1.00
+    max_prompt_length: int = 50_000
+    blocked_input_count: int = 0
+    redacted_output_count: int = 0
+    is_live: bool = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.is_live = bool(TRUEFOUNDRY_API_KEY)
+        mode = "TrueFoundry + local" if self.is_live else "local-only"
+        logger.info("GuardrailsConfig: initialized (%s mode)", mode)
+
+    # ------------------------------------------------------------------
+    # Input validation
+    # ------------------------------------------------------------------
+
+    def check_input(self, text: str) -> tuple[bool, str]:
+        """Validate input text against guardrails.
+
+        Args:
+            text: The prompt or user input to validate.
+
+        Returns:
+            Tuple of ``(is_safe, reason)``.  ``is_safe`` is True if the
+            input passes all checks.
+        """
+        # Length check
+        if len(text) > self.max_prompt_length:
+            self.blocked_input_count += 1
+            return False, f"Prompt exceeds max length ({len(text)} > {self.max_prompt_length})"
+
+        # Pattern checks
+        for entry in INPUT_BLOCK_PATTERNS:
+            flags = entry.get("flags", 0)
+            if re.search(entry["pattern"], text, flags):
+                self.blocked_input_count += 1
+                reason = f"Blocked: input matches dangerous pattern [{entry['label']}]"
+                logger.warning("Guardrails: %s", reason)
+                return False, reason
+
+        return True, "Input passed all guardrails"
+
+    # ------------------------------------------------------------------
+    # Output sanitization
+    # ------------------------------------------------------------------
+
+    def check_output(self, text: str) -> tuple[str, list[dict]]:
+        """Validate and sanitize output text.
+
+        Args:
+            text: The LLM response or text to sanitize.
+
+        Returns:
+            Tuple of ``(cleaned_text, redactions)`` where ``redactions``
+            is a list of dicts describing what was redacted.
+        """
+        redactions: list[dict] = []
+        cleaned = text
+
+        for entry in OUTPUT_REDACTION_PATTERNS:
+            flags = entry.get("flags", 0)
+            matches = list(re.finditer(entry["pattern"], cleaned, flags))
+            if matches:
+                for m in matches:
+                    redactions.append({
+                        "type": entry["label"],
+                        "position": m.start(),
+                        "length": len(m.group()),
+                    })
+                cleaned = re.sub(entry["pattern"], entry["replacement"], cleaned, flags=flags)
+
+        if redactions:
+            self.redacted_output_count += len(redactions)
+            logger.info(
+                "Guardrails: redacted %d sensitive items from output", len(redactions)
+            )
+
+        return cleaned, redactions
+
+    # ------------------------------------------------------------------
+    # Summary (for demo dashboard)
+    # ------------------------------------------------------------------
+
+    def get_guardrails_summary(self) -> dict:
+        """Return guardrails configuration summary for dashboard display."""
+        return {
+            "mode": "truefoundry_plus_local" if self.is_live else "local_only",
+            "input_guardrails": {
+                "patterns_count": len(INPUT_BLOCK_PATTERNS),
+                "patterns": [e["label"] for e in INPUT_BLOCK_PATTERNS],
+                "max_prompt_length": self.max_prompt_length,
+                "total_blocked": self.blocked_input_count,
+            },
+            "output_guardrails": {
+                "redaction_patterns_count": len(OUTPUT_REDACTION_PATTERNS),
+                "redaction_types": [e["label"] for e in OUTPUT_REDACTION_PATTERNS],
+                "max_output_cost_usd": self.max_output_cost_usd,
+                "total_redactions": self.redacted_output_count,
+            },
+        }

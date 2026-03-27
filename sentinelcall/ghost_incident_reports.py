@@ -1,180 +1,278 @@
-"""Ghost CMS — tiered incident report publishing.
+"""Tiered incident report publishing via Ghost CMS.
 
-Creative use: Ghost publishes TWO posts per incident:
-  1. Public post   — executive summary (plain English, no jargon)
-  2. Members-only  — full engineering report (stack traces, PR links, metrics)
+Publishes TWO reports per incident:
+  - Executive report (public): high-level status, impact, ETA, action taken.
+  - Engineering report (members-only): full root cause, metrics, data sources,
+    remediation steps, Macroscope analysis, call transcript, and Overmind trace.
 
-Auth uses Ghost Admin API JWT (id:secret key split and signed per Ghost spec).
+This is the CREATIVE use of Ghost — not just a blog, but a structured incident
+communication platform with audience-based visibility tiers.
 """
-import os
+
+import logging
 import time
-import jwt
-import requests
-from dotenv import load_dotenv
+import uuid
+from datetime import datetime, timezone
+from typing import Any, Optional
 
-load_dotenv()
+from sentinelcall.ghost_publisher import GhostPublisher
 
-GHOST_URL = os.environ.get('GHOST_URL', '').rstrip('/')
-GHOST_ADMIN_API_KEY = os.environ.get('GHOST_ADMIN_API_KEY', '')  # format: id:secret
+logger = logging.getLogger(__name__)
 
-API_VERSION = 'v5.0'
+# -- HTML Templates --
 
-
-def _auth_header() -> dict:
-    """Build Ghost Admin API JWT auth header from the id:secret key."""
-    key_id, secret = GHOST_ADMIN_API_KEY.split(':')
-    now = int(time.time())
-    payload = {
-        'iat': now,
-        'exp': now + 300,
-        'aud': f'/{API_VERSION}/admin/',
-    }
-    token = jwt.encode(payload, bytes.fromhex(secret), algorithm='HS256', headers={'kid': key_id})
-    return {'Authorization': f'Ghost {token}'}
-
-
-def _post(endpoint: str, data: dict) -> dict:
-    resp = requests.post(
-        f'{GHOST_URL}/ghost/api/{API_VERSION}/admin/{endpoint}/',
-        headers={**_auth_header(), 'Content-Type': 'application/json'},
-        json=data,
-    )
-    resp.raise_for_status()
-    return resp.json()
+_SHARED_STYLE = """
+<style>
+    .sc-report { font-family: 'Inter', -apple-system, sans-serif; color: #e0e0e0; background: #1a1a2e; padding: 32px; border-radius: 12px; }
+    .sc-report h2 { color: #00d4ff; margin-top: 24px; }
+    .sc-report h3 { color: #b0b0cc; }
+    .sc-report .sc-badge { display: inline-block; padding: 4px 12px; border-radius: 4px; font-weight: 700; font-size: 14px; }
+    .sc-badge-p0 { background: #ff1744; color: #fff; }
+    .sc-badge-p1 { background: #ff9100; color: #1a1a2e; }
+    .sc-badge-p2 { background: #ffd600; color: #1a1a2e; }
+    .sc-badge-p3 { background: #69f0ae; color: #1a1a2e; }
+    .sc-report .sc-metric { background: #16213e; padding: 12px 16px; border-left: 3px solid #00d4ff; margin: 8px 0; border-radius: 4px; }
+    .sc-report .sc-footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid #333; font-size: 12px; color: #666; }
+    .sc-report code { background: #16213e; padding: 2px 6px; border-radius: 3px; color: #69f0ae; }
+    .sc-report pre { background: #0d1117; padding: 16px; border-radius: 8px; overflow-x: auto; color: #c9d1d9; }
+    .sc-report table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+    .sc-report th, .sc-report td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #333; }
+    .sc-report th { color: #00d4ff; font-weight: 600; }
+</style>
+"""
 
 
-def _build_exec_html(incident: dict) -> str:
-    """Plain-English executive summary — no technical jargon."""
-    service = incident.get('service', 'Unknown Service')
-    duration = incident.get('duration_min', '?')
-    impact = incident.get('user_impact', 'Some users experienced degraded service.')
-    status = incident.get('status', 'resolved')
-    action = incident.get('remediation_action', 'Automated rollback applied.')
-
-    return f"""
-<p><strong>Status:</strong> {status.upper()}</p>
-
-<h2>What happened</h2>
-<p>Our <strong>{service}</strong> service experienced an incident lasting approximately
-<strong>{duration} minutes</strong>. {impact}</p>
-
-<h2>What we did</h2>
-<p>{action} Our autonomous incident response system (SentinelCall) detected the issue,
-contacted the on-call engineer, and initiated remediation — all within 47 seconds.</p>
-
-<h2>What we're doing next</h2>
-<p>A full engineering post-mortem is underway. We will publish preventative measures
-within 48 hours.</p>
-
-<p><em>This report was generated automatically by SentinelCall.</em></p>
-""".strip()
+def _severity_badge(severity: str) -> str:
+    """Return an HTML badge for the severity level."""
+    sev = severity.upper().replace("SEV-", "P").replace("-", "")
+    css_class = {
+        "P0": "sc-badge-p0",
+        "P1": "sc-badge-p1",
+        "P2": "sc-badge-p2",
+        "P3": "sc-badge-p3",
+    }.get(sev, "sc-badge-p2")
+    return f'<span class="sc-badge {css_class}">{severity}</span>'
 
 
-def _build_eng_html(incident: dict) -> str:
-    """Full technical report for engineers — metrics, root cause, PR links."""
-    service       = incident.get('service', 'unknown')
-    incident_id   = incident.get('incident_id', 'INC-???')
-    error_rate    = incident.get('error_rate_pct', 'N/A')
-    latency_ms    = incident.get('latency_ms', 'N/A')
-    root_cause    = incident.get('root_cause', 'Under investigation')
-    causal_pr     = incident.get('causal_pr_url', '')
-    causal_pr_num = incident.get('causal_pr_number', '')
-    anomaly_score = incident.get('anomaly_score', 'N/A')
-    llm_model     = incident.get('llm_model_used', 'N/A')
-    duration      = incident.get('duration_min', '?')
-    timeline      = incident.get('timeline', [])
-    remediation   = incident.get('remediation_action', 'Automated rollback applied.')
-
-    pr_link = (
-        f'<a href="{causal_pr}">PR #{causal_pr_num}</a>'
-        if causal_pr else 'Not identified'
+def _timestamp_footer() -> str:
+    """Return a timestamped footer."""
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    return (
+        f'<div class="sc-footer">'
+        f"Auto-generated by SentinelCall at {ts}"
+        f"</div>"
     )
 
-    timeline_html = ''
-    if timeline:
-        items = ''.join(f'<li><code>{e["time"]}</code> — {e["event"]}</li>' for e in timeline)
-        timeline_html = f'<h2>Timeline</h2><ul>{items}</ul>'
 
-    return f"""
-<p><strong>Incident ID:</strong> {incident_id} &nbsp;|&nbsp;
-<strong>Duration:</strong> {duration} min &nbsp;|&nbsp;
-<strong>Severity:</strong> {incident.get('severity', 'critical').upper()}</p>
+class IncidentReportPublisher:
+    """Publish tiered incident reports to Ghost CMS."""
 
-<h2>Metrics at time of detection</h2>
-<table>
-  <thead><tr><th>Metric</th><th>Value</th></tr></thead>
-  <tbody>
-    <tr><td>Service</td><td>{service}</td></tr>
-    <tr><td>Error rate</td><td>{error_rate}%</td></tr>
-    <tr><td>P99 latency</td><td>{latency_ms} ms</td></tr>
-    <tr><td>Anomaly score</td><td>{anomaly_score}</td></tr>
-    <tr><td>LLM model escalated to</td><td>{llm_model}</td></tr>
-  </tbody>
-</table>
+    def __init__(self, ghost_publisher: GhostPublisher | None = None):
+        self.ghost = ghost_publisher or GhostPublisher()
+        self._report_urls: list[dict[str, Any]] = []
 
-<h2>Root cause</h2>
-<p>{root_cause}</p>
-<p><strong>Causal PR (via Macroscope):</strong> {pr_link}</p>
+    def publish_incident_report(
+        self, incident: dict[str, Any], diagnosis: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Publish executive and engineering incident reports.
 
-<h2>Remediation</h2>
-<p>{remediation}</p>
+        Args:
+            incident: Dict with ``incident_id``, ``service``, ``severity``,
+                ``description``, ``started_at``, ``status``.
+            diagnosis: Dict with ``root_cause``, ``metrics_snapshot``,
+                ``airbyte_sources``, ``remediation_steps``,
+                ``macroscope_analysis``, ``bland_transcript``,
+                ``overmind_trace``, ``eta_minutes``, ``action_taken``.
 
-{timeline_html}
+        Returns:
+            Dict with ``executive_report`` and ``engineering_report`` results.
+        """
+        incident_id = incident.get("incident_id", f"INC-{uuid.uuid4().hex[:8]}")
+        severity = incident.get("severity", "SEV-2")
 
-<h2>Agent decision trace</h2>
-<p>Full LLM call trace available in the
-<a href="{incident.get('overmind_trace_url', '#')}">Overmind dashboard</a>.</p>
+        exec_result = self._publish_executive_report(incident_id, severity, incident, diagnosis)
+        eng_result = self._publish_engineering_report(incident_id, severity, incident, diagnosis)
 
-<p><em>Generated automatically by SentinelCall. Auth0 CIBA token verified engineer approval.</em></p>
-""".strip()
+        self._report_urls.append({
+            "incident_id": incident_id,
+            "executive_url": exec_result.get("url"),
+            "engineering_url": eng_result.get("url"),
+        })
 
+        logger.info(
+            "Published tiered reports for %s: exec=%s eng=%s",
+            incident_id,
+            exec_result.get("url"),
+            eng_result.get("url"),
+        )
 
-def publish_executive_report(incident: dict) -> dict:
-    """Publish a public executive summary post to Ghost."""
-    service = incident.get('service', 'Service')
-    incident_id = incident.get('incident_id', 'INC-001')
-    status = incident.get('status', 'resolved').capitalize()
+        return {
+            "executive_report": exec_result,
+            "engineering_report": eng_result,
+        }
 
-    return _post('posts', {'posts': [{
-        'title': f'[{status}] {service} Incident Report — {incident_id}',
-        'html': _build_exec_html(incident),
-        'status': 'published',
-        'visibility': 'public',
-        'tags': [{'name': 'incident'}, {'name': 'status-update'}],
-        'custom_excerpt': (
-            f'{service} experienced an incident. '
-            f'Automated remediation completed in under 60 seconds.'
-        ),
-    }]})
+    def get_report_urls(self) -> list[dict[str, Any]]:
+        """Return URLs of all published incident reports."""
+        return list(self._report_urls)
 
+    # -- Private report builders --
 
-def publish_engineering_report(incident: dict) -> dict:
-    """Publish a members-only engineering post-mortem to Ghost."""
-    service = incident.get('service', 'Service')
-    incident_id = incident.get('incident_id', 'INC-001')
+    def _publish_executive_report(
+        self,
+        incident_id: str,
+        severity: str,
+        incident: dict[str, Any],
+        diagnosis: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Build and publish the public executive summary."""
+        service = incident.get("service", "unknown-service")
+        description = incident.get("description", "Production anomaly detected.")
+        status = incident.get("status", "investigating")
+        eta = diagnosis.get("eta_minutes", 15)
+        action = diagnosis.get("action_taken", "Automated remediation initiated.")
+        impact = diagnosis.get("impact", "Elevated error rates affecting end-users.")
 
-    return _post('posts', {'posts': [{
-        'title': f'Post-Mortem: {service} — {incident_id} (Engineering)',
-        'html': _build_eng_html(incident),
-        'status': 'published',
-        'visibility': 'members',   # members-only — not public
-        'tags': [{'name': 'post-mortem'}, {'name': 'engineering'}, {'name': 'internal'}],
-        'custom_excerpt': (
-            f'Full technical post-mortem for {incident_id}: '
-            f'root cause, metrics, causal PR, and agent decision trace.'
-        ),
-    }]})
+        html = f"""
+{_SHARED_STYLE}
+<div class="sc-report">
+    <h2>Incident Report: {incident_id}</h2>
+    <p>{_severity_badge(severity)} &nbsp; Service: <strong>{service}</strong></p>
 
+    <div class="sc-metric"><strong>Status:</strong> {status.title()}</div>
+    <div class="sc-metric"><strong>Impact:</strong> {impact}</div>
+    <div class="sc-metric"><strong>ETA to Resolution:</strong> {eta} minutes</div>
 
-def publish_incident_reports(incident: dict) -> dict:
-    """Publish both tiers. Returns URLs for both posts."""
-    exec_resp = publish_executive_report(incident)
-    eng_resp = publish_engineering_report(incident)
+    <h3>Action Taken</h3>
+    <p>{action}</p>
 
-    exec_url = exec_resp['posts'][0].get('url', '')
-    eng_url = eng_resp['posts'][0].get('url', '')
+    <h3>Summary</h3>
+    <p>{description}</p>
 
-    print(f'[Ghost] Executive report: {exec_url}')
-    print(f'[Ghost] Engineering report: {eng_url}')
+    {_timestamp_footer()}
+</div>
+"""
+        title = f"[{severity}] {service} — Incident {incident_id}"
+        tags = ["incident", severity.lower(), "executive-summary"]
 
-    return {'executive_url': exec_url, 'engineering_url': eng_url}
+        return self.ghost.publish_post(
+            title=title,
+            html=html,
+            tags=tags,
+            visibility="public",
+            featured=(severity in ("SEV-0", "SEV-1", "P0", "P1")),
+        )
+
+    def _publish_engineering_report(
+        self,
+        incident_id: str,
+        severity: str,
+        incident: dict[str, Any],
+        diagnosis: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Build and publish the members-only engineering deep-dive."""
+        service = incident.get("service", "unknown-service")
+        description = incident.get("description", "Production anomaly detected.")
+        root_cause = diagnosis.get("root_cause", "Under investigation.")
+        metrics = diagnosis.get("metrics_snapshot", {})
+        airbyte_sources = diagnosis.get("airbyte_sources", [])
+        remediation_steps = diagnosis.get("remediation_steps", [])
+        macroscope = diagnosis.get("macroscope_analysis", {})
+        transcript = diagnosis.get("bland_transcript", "")
+        overmind_trace = diagnosis.get("overmind_trace", "")
+
+        # Metrics table
+        metrics_rows = ""
+        for k, v in (metrics if isinstance(metrics, dict) else {}).items():
+            metrics_rows += f"<tr><td><code>{k}</code></td><td>{v}</td></tr>\n"
+        metrics_html = f"""
+    <table>
+        <tr><th>Metric</th><th>Value</th></tr>
+        {metrics_rows}
+    </table>
+""" if metrics_rows else "<p>No metrics snapshot available.</p>"
+
+        # Airbyte sources
+        airbyte_html = ""
+        if airbyte_sources:
+            items = "".join(f"<li>{src}</li>" for src in airbyte_sources)
+            airbyte_html = f"<ul>{items}</ul>"
+        else:
+            airbyte_html = "<p>No dynamic Airbyte connectors created for this incident.</p>"
+
+        # Remediation steps
+        remediation_html = ""
+        if remediation_steps:
+            items = "".join(f"<li>{step}</li>" for step in remediation_steps)
+            remediation_html = f"<ol>{items}</ol>"
+        else:
+            remediation_html = "<p>No remediation steps recorded.</p>"
+
+        # Macroscope analysis
+        if macroscope:
+            pr_num = macroscope.get("pr_number", "N/A")
+            pr_title = macroscope.get("pr_title", "Unknown")
+            confidence = macroscope.get("confidence", "N/A")
+            explanation = macroscope.get("explanation", "")
+            macroscope_html = f"""
+    <div class="sc-metric">
+        <strong>Causal PR:</strong> #{pr_num} — {pr_title}<br>
+        <strong>Confidence:</strong> {confidence}<br>
+        <strong>Analysis:</strong> {explanation}
+    </div>
+"""
+        else:
+            macroscope_html = "<p>No Macroscope analysis available.</p>"
+
+        # Transcript
+        transcript_html = (
+            f"<pre>{transcript}</pre>" if transcript
+            else "<p>No Bland AI call transcript recorded.</p>"
+        )
+
+        # Overmind trace
+        overmind_html = (
+            f"<pre>{overmind_trace}</pre>" if overmind_trace
+            else "<p>No Overmind decision trace available.</p>"
+        )
+
+        html = f"""
+{_SHARED_STYLE}
+<div class="sc-report">
+    <h2>Engineering Report: {incident_id}</h2>
+    <p>{_severity_badge(severity)} &nbsp; Service: <strong>{service}</strong></p>
+    <p>{description}</p>
+
+    <h2>Root Cause</h2>
+    <p>{root_cause}</p>
+
+    <h2>Metrics Snapshot</h2>
+    {metrics_html}
+
+    <h2>Airbyte Data Sources</h2>
+    {airbyte_html}
+
+    <h2>Remediation Steps</h2>
+    {remediation_html}
+
+    <h2>Macroscope Analysis (PR-Linked Root Cause)</h2>
+    {macroscope_html}
+
+    <h2>Bland AI Call Transcript</h2>
+    {transcript_html}
+
+    <h2>Overmind Decision Trace</h2>
+    {overmind_html}
+
+    {_timestamp_footer()}
+</div>
+"""
+        title = f"[ENG] [{severity}] {service} — Incident {incident_id}"
+        tags = ["incident", severity.lower(), "engineering-report"]
+
+        return self.ghost.publish_post(
+            title=title,
+            html=html,
+            tags=tags,
+            visibility="members",
+            featured=False,
+        )
