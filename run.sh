@@ -192,4 +192,4 @@ if command -v open &>/dev/null; then
 fi
 
 # Start server
-exec python3 -m uvicorn sentinelcall.dashboard:app --host 0.0.0.0 --port 8000 --reload
+exec python3 -m uvicorn sentinelcall.dashboard:app --host 0.0.0.0 --port 8000 --reload --reload-dir sentinelcall

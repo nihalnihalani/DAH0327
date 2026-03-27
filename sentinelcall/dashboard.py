@@ -1,4 +1,4 @@
-"""Page0 FastAPI Dashboard — production-grade incident command center.
+"""Pager0 FastAPI Dashboard — production-grade incident command center.
 
 Serves a single-page HTML dashboard with real-time SSE updates and exposes
 JSON API endpoints for the agent, metrics, incidents, and Overmind trace.
@@ -19,15 +19,17 @@ from sse_starlette.sse import EventSourceResponse
 from sentinelcall.agent import SentinelCallAgent
 from sentinelcall.webhook_server import router as bland_router
 from sentinelcall.ghost_webhooks import router as ghost_router
+from sentinelcall.auth_landing import router as auth_router
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Page0", version="1.0.0")
+app = FastAPI(title="Pager0", version="1.0.0")
 
 # Mount webhook routers
 app.include_router(bland_router)
 if ghost_router is not None:
     app.include_router(ghost_router)
+app.include_router(auth_router)
 # Singleton agent
 agent = SentinelCallAgent()
 
@@ -40,12 +42,12 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Page0</title>
+<title>Pager0</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
 /* ==========================================================================
-   DESIGN TOKENS — Stitch: Page0 Final (Charcoal + Violet)
+   DESIGN TOKENS — Stitch: Pager0 Final (Charcoal + Violet)
    ========================================================================== */
 :root {
   /* Backgrounds — true black */
@@ -602,7 +604,7 @@ body.light .theme-toggle::after{transform:translateX(18px);background:var(--oran
 
 <div class="header">
   <div class="h-left">
-    <a href="/" class="logo" style="text-decoration:none;color:inherit;">PAGE<span>0</span></a>
+    <a href="/" class="logo" style="text-decoration:none;color:inherit;">PAGER<span>0</span></a>
     <div class="h-sep"></div>
     <div class="h-tag">Autonomous Incident Response</div>
   </div>
