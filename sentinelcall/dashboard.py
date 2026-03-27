@@ -7,17 +7,18 @@ JSON API endpoints for the agent, metrics, incidents, and Overmind trace.
 import asyncio
 import json
 import logging
+import os
 import time
 from typing import Any
 
 from fastapi import FastAPI, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 
 from sentinelcall.agent import SentinelCallAgent
 from sentinelcall.webhook_server import router as bland_router
 from sentinelcall.ghost_webhooks import router as ghost_router
-from sentinelcall.auth_landing import router as auth_router
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +28,6 @@ app = FastAPI(title="SentinelCall", version="1.0.0")
 app.include_router(bland_router)
 if ghost_router is not None:
     app.include_router(ghost_router)
-app.include_router(auth_router)
-
 # Singleton agent
 agent = SentinelCallAgent()
 
@@ -275,7 +274,7 @@ body.light .theme-toggle::after{transform:translateX(18px);background:var(--oran
 .pipe-timer.on .td{background:var(--violet);animation:blink 1s infinite;}
 
 .orbit-container{
-  position:relative;width:100%;height:520px;
+  position:relative;width:100%;height:560px;
   display:flex;align-items:center;justify-content:center;
   cursor:default;
 }
@@ -315,8 +314,10 @@ body.light .theme-toggle::after{transform:translateX(18px);background:var(--oran
 /* Orbital nodes */
 .o-node{
   position:absolute;display:flex;flex-direction:column;align-items:center;
-  cursor:pointer;transition:all .7s cubic-bezier(0.4,0,0.2,1);
+  cursor:pointer;transition:opacity .5s, z-index 0s;
   z-index:5;
+  transform-origin:center center;
+  will-change:left,top,opacity;
 }
 .o-node:hover{z-index:15;}
 
@@ -330,11 +331,11 @@ body.light .theme-toggle::after{transform:translateX(18px);background:var(--oran
 
 /* Node circle — matches React w-10 h-10 = 40px, scaled up to 48px */
 .o-circle{
-  width:48px;height:48px;border-radius:50%;
+  width:52px;height:52px;border-radius:50%;
   border:2px solid rgba(255,255,255,0.4);
   background:var(--bg-0);color:var(--text-0);
   display:flex;align-items:center;justify-content:center;
-  font-size:20px;transition:all .3s cubic-bezier(0.4,0,0.2,1);
+  font-size:22px;transition:all .3s cubic-bezier(0.4,0,0.2,1);
   position:relative;z-index:2;
 }
 
@@ -343,7 +344,9 @@ body.light .theme-toggle::after{transform:translateX(18px);background:var(--oran
 .o-node.active .o-circle{
   background:white;color:black;border-color:white;
   box-shadow:0 0 30px rgba(255,255,255,0.4),0 0 60px rgba(139,92,246,0.2);
-  transform:scale(1.5);opacity:1;
+  width:62px;height:62px;font-size:26px;
+  margin-left:-5px;margin-top:-5px;
+  opacity:1;
   animation:active-glow 1.5s ease-in-out infinite;
 }
 @keyframes active-glow{
@@ -367,7 +370,7 @@ body.light .theme-toggle::after{transform:translateX(18px);background:var(--oran
 .o-label{
   font-size:11px;font-weight:600;color:rgba(255,255,255,0.7);
   text-align:center;white-space:nowrap;
-  margin-top:8px;transition:all .3s;letter-spacing:0.5px;
+  margin-top:10px;pointer-events:none;transition:all .3s;letter-spacing:0.5px;
 }
 .o-node.active .o-label{color:white;transform:scale(1.25);}
 .o-node.complete .o-label{color:rgba(255,255,255,0.9);}
@@ -711,7 +714,7 @@ const SPONSORS=[
 
 let ps={},sparkD={},tlCount=0,pStart=null,pInt=null,curStep=0;
 let orbitAngle=0,autoRotate=true,orbitRAF=null,expandedNode=null,activeNodeId=null;
-const RADIUS=200;
+const RADIUS=220;
 
 /* Step metadata — metrics + descriptions + related nodes */
 const STEP_META={
@@ -787,8 +790,8 @@ function positionNodes(){
     const z=Math.round(100+50*Math.cos(rad));
 
     const isExpanded=expandedNode===s.id;
-    node.style.left=(x-24)+"px";
-    node.style.top=(y-24)+"px";
+    node.style.left=(x-26)+"px";
+    node.style.top=(y-26)+"px";
     node.style.zIndex=isExpanded?200:z;
     node.style.opacity=isExpanded?1:opacity;
     positions.push({x,y,id:s.id});
@@ -1204,3 +1207,12 @@ async def api_events():
 async def _run_pipeline():
     """Execute the incident response pipeline."""
     await agent.run_incident_response()
+
+
+# ---------------------------------------------------------------------------
+# Serve React landing page (static export) — must be LAST so API routes win
+# ---------------------------------------------------------------------------
+
+frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "out")
+if os.path.isdir(frontend_dir):
+    app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")

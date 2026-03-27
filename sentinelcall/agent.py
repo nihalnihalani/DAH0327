@@ -138,6 +138,7 @@ class SentinelCallAgent:
         }
 
         await self._broadcast("incident_start", {"incident_id": incident_id, "service": service})
+        await asyncio.sleep(1.0)  # Let dashboard animate the incident start
 
         try:
             # ---- Step 1: Trigger incident & pull metrics ----
@@ -157,6 +158,7 @@ class SentinelCallAgent:
                 model_used="mock_infra",
             )
             await self._broadcast("step_complete", {"step": "metrics_collection", "duration_ms": round(step_time * 1000, 1)})
+            await asyncio.sleep(1.5)  # Pause so dashboard can animate this step
 
             # ---- Step 2: Detect anomalies ----
             step_start = time.time()
@@ -183,6 +185,7 @@ class SentinelCallAgent:
                 "anomalies": len(anomalies),
                 "severity": severity,
             })
+            await asyncio.sleep(1.5)  # Pause so dashboard can animate this step
 
             # ---- Step 3: LLM severity escalation & diagnosis ----
             step_start = time.time()
@@ -225,6 +228,7 @@ class SentinelCallAgent:
                 "model": model_used,
                 "severity": severity,
             })
+            await asyncio.sleep(2.0)  # Pause so dashboard can animate this step (longer for LLM)
 
             # ---- Step 4: Dynamic Airbyte investigation ----
             step_start = time.time()
@@ -250,6 +254,7 @@ class SentinelCallAgent:
                 "step": "dynamic_investigation",
                 "connectors_created": connector_summary["total_connectors_created"],
             })
+            await asyncio.sleep(1.5)  # Pause so dashboard can animate this step
 
             # ---- Step 5: Macroscope PR root cause ----
             step_start = time.time()
@@ -282,6 +287,7 @@ class SentinelCallAgent:
                 "step": "macroscope_rca",
                 "causal_pr": macroscope_result.get("pr_number"),
             })
+            await asyncio.sleep(1.5)  # Pause so dashboard can animate this step
 
             # ---- Step 6: Auth0 CIBA approval flow ----
             step_start = time.time()
@@ -317,6 +323,7 @@ class SentinelCallAgent:
                 "step": "auth0_ciba",
                 "auth_req_id": auth_req_id,
             })
+            await asyncio.sleep(1.5)  # Pause so dashboard can animate this step
 
             # ---- Step 7: Bland AI phone call ----
             step_start = time.time()
@@ -369,6 +376,7 @@ class SentinelCallAgent:
                 "step": "bland_call",
                 "call_id": call_id,
             })
+            await asyncio.sleep(2.0)  # Pause so dashboard can animate this step (longer for phone call)
 
             # ---- Step 8: Ghost tiered reports ----
             step_start = time.time()
@@ -430,6 +438,7 @@ class SentinelCallAgent:
                 "step": "ghost_reports",
                 "reports_published": 2,
             })
+            await asyncio.sleep(1.5)  # Pause so dashboard can animate this step
 
             # ---- Step 9: Resolve incident ----
             self.infra.resolve_incident()
@@ -451,6 +460,7 @@ class SentinelCallAgent:
             incident_record["overmind_trace"] = self.tracer.get_decision_trace()
             incident_record["overmind_optimization"] = self.tracer.get_optimization_report()
 
+            await asyncio.sleep(1.0)  # Pause before showing resolution
             await self._broadcast("incident_resolved", {
                 "incident_id": incident_id,
                 "duration_seconds": incident_record["total_duration_seconds"],

@@ -137,7 +137,28 @@ else
 fi
 
 # ------------------------------------------------------------------
-# 6. Quick validation
+# 6. Build frontend (React static export)
+# ------------------------------------------------------------------
+step "Building frontend..."
+if [ -d "frontend" ] && [ -f "frontend/package.json" ]; then
+    if ! command -v npm &>/dev/null; then
+        warn "npm not found — skipping frontend build (install Node.js for the React landing page)"
+    else
+        cd frontend
+        if npm install --silent 2>/dev/null && npm run build 2>/dev/null; then
+            cd ..
+            ok "Frontend built (static export in frontend/out/)"
+        else
+            cd ..
+            warn "Frontend build failed — using fallback landing page"
+        fi
+    fi
+else
+    warn "Frontend not found — using fallback landing page"
+fi
+
+# ------------------------------------------------------------------
+# 7. Quick validation
 # ------------------------------------------------------------------
 step "Validating project..."
 python3 -c "
@@ -151,7 +172,7 @@ print(f'  Agent: OK | Dashboard: {len(routes)} routes')
 ok "All modules loaded successfully"
 
 # ------------------------------------------------------------------
-# 7. Launch
+# 8. Launch
 # ------------------------------------------------------------------
 step "Starting SentinelCall..."
 echo ""
