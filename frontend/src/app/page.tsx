@@ -196,6 +196,13 @@ export default function Home() {
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <a
+              href="/auth"
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-white px-8 py-3 text-black font-semibold transition-all hover:bg-gray-100 hover:shadow-lg hover:shadow-white/10"
+            >
+              <Shield className="w-4 h-4" />
+              Sign in with Auth0
+            </a>
+            <a
               href="/dashboard"
               className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#8b5cf6] px-8 py-3 text-white font-semibold transition-colors hover:bg-[#7c3aed]"
             >
