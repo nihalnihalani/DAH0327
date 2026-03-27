@@ -341,7 +341,7 @@ def get_call_status(call_id: str) -> dict[str, Any]:
             "call_length": 0.79,
             "answered_by": "human",
             "call_ended_by": "ASSISTANT",
-            "summary": "SentinelCall briefed engineer on SEV-2 api-gateway incident. Engineer approved pod restart.",
+            "summary": "SentinelCall briefed engineer on SEV-1 payment-service incident. Engineer approved rollback of PR #47.",
             "mock": True,
         }
 
@@ -376,7 +376,7 @@ def get_call_transcript(call_id: str) -> dict[str, Any]:
         return {
             "call_id": call_id,
             "transcripts": [
-                {"id": 1, "user": "assistant", "text": "Hello, this is SentinelCall. We've detected a SEV-2 incident on api-gateway.", "created_at": "2026-03-27T00:00:01Z"},
+                {"id": 1, "user": "assistant", "text": "Hello, this is SentinelCall. We've detected a SEV-1 incident on payment-service.", "created_at": "2026-03-27T00:00:01Z"},
                 {"id": 2, "user": "user", "text": "What are the current metrics?", "created_at": "2026-03-27T00:00:05Z"},
                 {"id": 3, "user": "agent-action", "text": "Calling tool: QueryLiveMetrics", "created_at": "2026-03-27T00:00:06Z"},
                 {"id": 4, "user": "assistant", "text": "Error rate is at 12.4%, p99 latency 2,340ms, CPU at 89%.", "created_at": "2026-03-27T00:00:08Z"},
@@ -385,7 +385,7 @@ def get_call_transcript(call_id: str) -> dict[str, Any]:
                 {"id": 7, "user": "assistant", "text": "Authorization received. Triggering CIBA approval and initiating remediation. Thank you.", "created_at": "2026-03-27T00:00:18Z"},
             ],
             "concatenated_transcript": (
-                "Assistant: Hello, this is SentinelCall. We've detected a SEV-2 incident on api-gateway.\n"
+                "Assistant: Hello, this is SentinelCall. We've detected a SEV-1 incident on payment-service.\n"
                 "User: What are the current metrics?\n"
                 "Assistant: Error rate is at 12.4%, p99 latency 2,340ms, CPU at 89%.\n"
                 "User: Okay, go ahead and restart the affected pods.\n"

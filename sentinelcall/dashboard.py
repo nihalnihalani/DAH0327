@@ -721,7 +721,7 @@ const STEP_META={
   detect:{desc:"Monitors all infrastructure metrics and detects anomalies in real-time using statistical analysis.",metric:{label:"Anomaly Confidence",value:"94%",pct:94},related:["ingest"],duration:"~2s"},
   ingest:{desc:"Airbyte dynamically ingests data from affected services with auto-configured connectors.",metric:{label:"Data Points Ingested",value:"12,847",pct:90},related:["detect","analyze"],duration:"~5s"},
   analyze:{desc:"LLM analyzes ingested data patterns and identifies root cause signals across services.",metric:{label:"Patterns Identified",value:"7 patterns",pct:85},related:["ingest","escalate"],duration:"~8s"},
-  escalate:{desc:"TrueFoundry escalates to more capable models based on incident severity level.",metric:{label:"Model Tier",value:"GPT-4 Turbo",pct:75},related:["analyze","connectors"],duration:"~3s"},
+  escalate:{desc:"TrueFoundry escalates to more capable models based on incident severity level.",metric:{label:"Model Tier",value:"claude-opus-4-6",pct:75},related:["analyze","connectors"],duration:"~3s"},
   connectors:{desc:"Creates new Airbyte connectors dynamically specific to the incident type for deeper investigation.",metric:{label:"Active Connectors",value:"3 created",pct:70},related:["escalate","rootcause"],duration:"~6s"},
   rootcause:{desc:"Macroscope analyzes recent PRs via GitHub App and identifies the causal code change.",metric:{label:"PR Confidence",value:"89%",pct:89},related:["connectors","call"],duration:"~4s"},
   call:{desc:"Bland AI calls the on-call engineer with an interactive voice briefing and mid-call data queries.",metric:{label:"Call Duration",value:"2m 34s",pct:55},related:["rootcause","auth"],duration:"~15s"},
@@ -972,12 +972,12 @@ function resetP(){
 function stopT(){if(pInt)clearInterval(pInt);pInt=null;document.getElementById("pTimer").className="pipe-timer";}
 function updT(){if(!pStart)return;document.getElementById("pTimerT").textContent=((Date.now()-pStart)/1000).toFixed(1)+"s elapsed";}
 
-const SM={"anomaly_detection":"detect","data_ingestion":"ingest","airbyte_ingest":"ingest",
-  "anomaly_analysis":"analyze","llm_analysis":"analyze","llm_escalation":"escalate",
-  "truefoundry_escalation":"escalate","dynamic_connectors":"connectors","airbyte_dynamic":"connectors",
+const SM={"metrics_collection":"detect","anomaly_detection":"detect","data_ingestion":"ingest","airbyte_ingest":"ingest",
+  "anomaly_analysis":"analyze","llm_analysis":"analyze","llm_diagnosis":"analyze","llm_escalation":"escalate",
+  "truefoundry_escalation":"escalate","dynamic_connectors":"connectors","airbyte_dynamic":"connectors","dynamic_investigation":"connectors",
   "root_cause":"rootcause","macroscope_rca":"rootcause","phone_call":"call","bland_call":"call",
-  "ciba_auth":"auth","auth0_ciba":"auth","publish_reports":"publish","ghost_publish":"publish",
-  "resolution":"resolve","overmind_trace":"resolve"};
+  "ciba_auth":"auth","auth0_ciba":"auth","publish_reports":"publish","ghost_publish":"publish","ghost_reports":"publish",
+  "resolution":"resolve","overmind_trace":"resolve","incident_resolved":"resolve"};
 function mapS(n){return SM[n.toLowerCase().replace(/[\s-]+/g,"_")]||null;}
 
 /* === SPONSORS === */
@@ -1028,7 +1028,7 @@ function renderInc(inc){
   if(inc.model_used)h+=rw("LLM Model",inc.model_used);
   if(inc.causal_pr)h+=rw("Causal PR",`<a href="#">#${inc.causal_pr.pr_number}</a> ${inc.causal_pr.pr_title} <span class="sev s2">${inc.causal_pr.confidence}</span>`);
   if(inc.call_id)h+=rw("Bland Call",inc.call_id);
-  if(inc.reports){h+=rw("Exec Report",`<a href="${inc.reports.executive_url}">${inc.reports.executive_url}</a>`);h+=rw("Eng Report",`<a href="${inc.reports.engineering_url}">${inc.reports.engineering_url}</a>`);}
+  if(inc.reports){const eu=inc.reports.executive_url,egu=inc.reports.engineering_url;if(eu&&eu!=="None")h+=rw("Exec Report",`<a href="${eu}" target="_blank">${eu}</a>`);if(egu&&egu!=="None")h+=rw("Eng Report",`<a href="${egu}" target="_blank">${egu}</a>`);}
   if(inc.anomaly_count!==undefined)h+=rw("Anomalies",inc.anomaly_count+" detected");
   d.innerHTML=h;
   document.getElementById("statInc").textContent=inc.incident_id?"1":"0";
@@ -1106,6 +1106,7 @@ async function refreshData(){
     const status=await sr.json(),metrics=await mr.json(),incidents=await ir.json();
     if(status.services)renderSvc(status.services);
     if(status.agent_status)setAS(status.agent_status);
+    if(status.agent_status==="idle"){const b=document.getElementById("triggerBtn");if(b)b.disabled=false;}
     if(status.total_incidents!==undefined)document.getElementById("statInc").textContent=status.total_incidents;
     renderM(metrics);
     if(incidents.length>0)renderInc(incidents[incidents.length-1]);

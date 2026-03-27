@@ -161,14 +161,18 @@ fi
 # 7. Quick validation
 # ------------------------------------------------------------------
 step "Validating project..."
-python3 -c "
+validation_output=$(python3 -c "
 import sys; sys.path.insert(0, '.')
 from sentinelcall.agent import SentinelCallAgent
 from sentinelcall.dashboard import app
 agent = SentinelCallAgent()
 routes = [r.path for r in app.routes if hasattr(r, 'path')]
 print(f'  Agent: OK | Dashboard: {len(routes)} routes')
-" 2>&1 | grep -v "not configured"
+" 2>&1)
+if [ $? -ne 0 ]; then
+  fail "Module validation failed: $validation_output"
+fi
+echo "$validation_output" | grep -v "not configured"
 ok "All modules loaded successfully"
 
 # ------------------------------------------------------------------
