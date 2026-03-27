@@ -1,3 +1,13 @@
-auth0-server-python>=1.0.0b7
-flask[async]>=2.0.0
+fastapi>=0.104.0
+uvicorn>=0.24.0
+requests>=2.31.0
 python-dotenv>=1.0.0
+PyJWT>=2.8.0
+openai>=1.6.0
+anthropic>=0.18.0
+sse-starlette>=1.8.0
+auth0-python>=4.0.0
+
+# Optional — install for full Airbyte / Overmind integration:
+# airbyte>=0.10.0
+# overmind>=0.5.0
