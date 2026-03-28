@@ -243,9 +243,10 @@ def _create_pathway_on_bland(incident_context: dict[str, Any]) -> str:
         timeout=30,
     )
     create_resp.raise_for_status()
-    pathway_id = create_resp.json().get("pathway_id")
+    create_data = create_resp.json()
+    pathway_id = create_data.get("pathway_id") or create_data.get("data", {}).get("pathway_id")
     if not pathway_id:
-        raise ValueError(f"No pathway_id in create response: {create_resp.json()}")
+        raise ValueError(f"No pathway_id in create response: {create_data}")
 
     # Step 2: populate nodes and edges
     logger.info(
@@ -321,42 +322,54 @@ def start_debate_call(
     if not BLAND_API_KEY:
         return _mock_debate_response(phone_number, incident_context)
 
+    service = incident_context.get("service", "unknown")
+    severity = incident_context.get("severity", "SEV-2")
+    description = incident_context.get("description", "Anomaly detected.")
+    root_cause = incident_context.get("root_cause", "Under investigation.")
+    recommended_action = incident_context.get("recommended_action", "Pending.")
+
+    task = (
+        "You are running a Page0 incident war room call with two AI analyst personas.\n\n"
+        f"INCIDENT: {severity} on {service}\n"
+        f"Description: {description}\n"
+        f"Root Cause: {root_cause}\n"
+        f"Recommended Action: {recommended_action}\n\n"
+        "STRUCTURE OF THIS CALL:\n"
+        "1. Introduce yourself as the Page0 war room moderator. Briefly state the incident.\n"
+        "2. Present AGENT HAWK's view (aggressive SRE): argue for immediate rollback — "
+        "every minute costs revenue, the last deploy is always the culprit, act now.\n"
+        "3. Ask the engineer: 'Do you agree with Agent Hawk, or shall I present the other side?'\n"
+        "4. If they want the other view (or haven't decided), present AGENT DOVE's view "
+        "(cautious SRE): argue for investigation first — rolling back blindly could mask the "
+        "real cause, check downstream dependencies before acting.\n"
+        "5. Ask the engineer for their final decision.\n"
+        "6. Summarize the decision and confirm Page0 will execute it.\n\n"
+        "Speak as distinct personas — Hawk is urgent and assertive, Dove is measured and analytical. "
+        "Keep each persona's argument to 3-4 sentences. Be responsive to whatever the engineer says."
+    )
+
+    payload: dict[str, Any] = {
+        "phone_number": phone_number,
+        "task": task,
+        "voice": "mason",
+        "wait_for_greeting": False,
+        "record": True,
+        "max_duration": 8,
+        "model": "turbo",
+        "temperature": 0.5,
+        "metadata": {
+            "call_type": "debate_war_room",
+            "incident_id": incident_context.get("incident_id", f"INC-{uuid.uuid4().hex[:8]}"),
+            "severity": severity,
+            "source": "page0",
+        },
+    }
+
+    if WEBHOOK_BASE_URL.startswith("https://"):
+        payload["webhook"] = f"{WEBHOOK_BASE_URL}/bland/webhook"
+
     try:
-        # Create the debate pathway
-        pathway_id = _create_pathway_on_bland(incident_context)
-
-        # Make the outbound call with the pathway
-        service = incident_context.get("service", "unknown")
-        severity = incident_context.get("severity", "SEV-2")
-
-        payload = {
-            "phone_number": phone_number,
-            "pathway_id": pathway_id,
-            "voice": "mason",
-            "wait_for_greeting": True,
-            "record": True,
-            "max_duration": 8,
-            "model": "base",
-            "temperature": 0.5,
-            "webhook": f"{WEBHOOK_BASE_URL}/bland/webhook",
-            "request_data": {
-                "service": service,
-                "severity": severity,
-                "description": incident_context.get("description", "Anomaly detected."),
-                "root_cause": incident_context.get("root_cause", "Under investigation."),
-                "recommended_action": incident_context.get("recommended_action", "Pending."),
-            },
-            "metadata": {
-                "call_type": "debate_war_room",
-                "incident_id": incident_context.get(
-                    "incident_id", f"INC-{uuid.uuid4().hex[:8]}"
-                ),
-                "severity": severity,
-                "source": "page0",
-            },
-        }
-
-        logger.info("[REAL] Sending debate call to %s with pathway %s", phone_number, pathway_id)
+        logger.info("[REAL] Sending debate call to %s (task prompt)", phone_number)
         response = requests.post(
             f"{BLAND_BASE_URL}/calls",
             json=payload,
@@ -366,7 +379,6 @@ def start_debate_call(
         response.raise_for_status()
         data = response.json()
 
-        data["pathway_id"] = pathway_id
         data["debate"] = True
         data["personas"] = ["Agent Hawk", "Agent Dove"]
 
@@ -377,7 +389,7 @@ def start_debate_call(
 
         return data
 
-    except (requests.RequestException, ValueError) as exc:
+    except requests.RequestException as exc:
         logger.error("[REAL] Debate call failed: %s — falling back to mock.", exc)
         result = _mock_debate_response(phone_number, incident_context)
         result["fallback_reason"] = str(exc)

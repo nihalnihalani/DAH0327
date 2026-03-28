@@ -89,6 +89,14 @@ _INCIDENT_PROFILES: dict[str, dict[str, float]] = {
         "db_connections": 30.0,
         "requests_per_sec": 600.0,
     },
+    "cache_failure": {
+        "error_rate": 14.8,
+        "latency_ms": 2600.0,
+        "cpu": 85.0,
+        "memory": 88.0,
+        "db_connections": 140.0,
+        "requests_per_sec": 210.0,
+    },
 }
 
 

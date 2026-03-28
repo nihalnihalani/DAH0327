@@ -126,7 +126,7 @@ class SentinelCallAgent:
         pipeline_start = time.time()
         service = service or "payment-service"
         incident_id = f"INC-{uuid.uuid4().hex[:8]}"
-        incident_type = "payment_service_error"
+        incident_type = "cache_failure"
 
         incident_record: dict[str, Any] = {
             "incident_id": incident_id,
