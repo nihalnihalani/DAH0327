@@ -23,7 +23,14 @@ from typing import Any, Optional
 
 import requests
 
-from sentinelcall.config import GITHUB_REPO, GITHUB_TOKEN, TRUEFOUNDRY_API_KEY, TRUEFOUNDRY_ENDPOINT
+from sentinelcall.config import (
+    GITHUB_REPO,
+    GITHUB_TOKEN,
+    TRUEFOUNDRY_API_KEY,
+    TRUEFOUNDRY_ENDPOINT,
+    ANTHROPIC_API_KEY,
+    OPENAI_API_KEY,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -408,7 +415,27 @@ Respond with:
         # Build the correlation prompt
         prompt = self.correlate_pr_with_incident(prs, incident)
 
-        # Attempt LLM call via TrueFoundry gateway
+        # Attempt LLM call: TrueFoundry → Anthropic → OpenAI → mock
+        llm_output = self._llm_correlate(prompt, incident)
+        if llm_output is not None:
+            identified_pr = self._extract_pr_from_llm_output(llm_output, prs)
+            return {
+                "pr_number": identified_pr.get("number") if identified_pr else (prs[0]["number"] if prs else None),
+                "pr_title": identified_pr.get("title") if identified_pr else (prs[0]["title"] if prs else "Unknown"),
+                "confidence": "high",
+                "explanation": llm_output,
+                "all_prs": prs,
+                "prompt_used": prompt,
+            }
+
+        return self._mock_analysis(prs, incident)
+
+    def _llm_correlate(self, prompt: str, incident: dict[str, Any]) -> str | None:
+        """Try LLM providers in order: TrueFoundry → Anthropic → OpenAI.
+
+        Returns the LLM output string, or None if all providers fail.
+        """
+        # 1. TrueFoundry gateway
         if TRUEFOUNDRY_API_KEY and TRUEFOUNDRY_ENDPOINT:
             try:
                 from openai import OpenAI
@@ -419,9 +446,7 @@ Respond with:
                 client = OpenAI(
                     api_key=TRUEFOUNDRY_API_KEY,
                     base_url=base_url,
-                    default_headers={
-                        "x-tfy-provider-name": provider,
-                    },
+                    default_headers={"x-tfy-provider-name": provider},
                 )
                 response = client.chat.completions.create(
                     model="claude-sonnet-4-6",
@@ -430,23 +455,47 @@ Respond with:
                     max_tokens=500,
                 )
                 llm_output = response.choices[0].message.content or ""
-                logger.info("LLM correlation complete for incident %s", incident.get("incident_id"))
-
-                # Parse the LLM output to extract the identified PR
-                identified_pr = self._extract_pr_from_llm_output(llm_output, prs)
-
-                return {
-                    "pr_number": identified_pr.get("number") if identified_pr else (prs[0]["number"] if prs else None),
-                    "pr_title": identified_pr.get("title") if identified_pr else (prs[0]["title"] if prs else "Unknown"),
-                    "confidence": "high",
-                    "explanation": llm_output,
-                    "all_prs": prs,
-                    "prompt_used": prompt,
-                }
+                logger.info("LLM correlation complete via TrueFoundry for incident %s", incident.get("incident_id"))
+                return llm_output
             except Exception as exc:
-                logger.error("LLM correlation failed: %s. Using mock analysis.", exc)
+                logger.error("TrueFoundry LLM correlation failed: %s", exc)
 
-        return self._mock_analysis(prs, incident)
+        # 2. Direct Anthropic
+        if ANTHROPIC_API_KEY:
+            try:
+                import anthropic
+
+                client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+                response = client.messages.create(
+                    model="claude-sonnet-4-6",
+                    max_tokens=500,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                llm_output = response.content[0].text if response.content else ""
+                logger.info("LLM correlation complete via Anthropic for incident %s", incident.get("incident_id"))
+                return llm_output
+            except Exception as exc:
+                logger.error("Anthropic LLM correlation failed: %s", exc)
+
+        # 3. Direct OpenAI
+        if OPENAI_API_KEY:
+            try:
+                from openai import OpenAI
+
+                client = OpenAI(api_key=OPENAI_API_KEY)
+                response = client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.2,
+                    max_tokens=500,
+                )
+                llm_output = response.choices[0].message.content or ""
+                logger.info("LLM correlation complete via OpenAI for incident %s", incident.get("incident_id"))
+                return llm_output
+            except Exception as exc:
+                logger.error("OpenAI LLM correlation failed: %s", exc)
+
+        return None
 
     @staticmethod
     def _extract_pr_from_llm_output(

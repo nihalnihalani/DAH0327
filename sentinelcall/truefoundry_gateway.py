@@ -57,6 +57,13 @@ MODEL_TIERS = {
     },
 }
 
+# Map Claude model names to OpenAI equivalents for direct OpenAI fallback.
+OPENAI_MODEL_MAP = {
+    "claude-haiku-4-5-20251001": "gpt-4o-mini",
+    "claude-sonnet-4-6": "gpt-4o",
+    "claude-opus-4-6": "gpt-4o",
+}
+
 # ---------------------------------------------------------------------------
 # Mock LLM responses for demo
 # ---------------------------------------------------------------------------
@@ -220,14 +227,11 @@ class TrueFoundryGateway:
         """Resolve model name for the active backend.
 
         When using TrueFoundry with the x-tfy-provider-name header,
-        we can pass raw model names directly. When using the model in
-        the request body without the header, we'd use the full
-        ``{provider}/{model}`` format.
+        we can pass raw model names directly. When using OpenAI directly,
+        Claude model names are mapped to OpenAI equivalents.
         """
-        if self._mode == "truefoundry":
-            # With x-tfy-provider-name header set, raw model IDs work.
-            # Alternatively, use full path: f"{self._provider_name}/{model}"
-            return model
+        if self._mode == "openai":
+            return OPENAI_MODEL_MAP.get(model, "gpt-4o-mini")
         return model
 
     # ------------------------------------------------------------------

@@ -15,7 +15,6 @@ Ref: https://docs.ghost.org/admin-api/webhooks/creating-a-webhook
 import hashlib
 import hmac
 import logging
-import os
 from typing import Any
 
 try:
@@ -26,7 +25,7 @@ except ImportError:
 
 import requests as http_requests
 
-from sentinelcall.config import GHOST_URL, GHOST_ADMIN_API_KEY
+from sentinelcall.config import GHOST_URL, GHOST_ADMIN_API_KEY, GHOST_WEBHOOK_SECRET
 from sentinelcall.ghost_publisher import GhostPublisher
 
 logger = logging.getLogger(__name__)
@@ -78,7 +77,7 @@ async def verify_ghost_signature(request: Request, body: bytes) -> bool:
         ``True`` if the signature is valid or verification is disabled;
         ``False`` if the signature is present but does not match.
     """
-    secret = os.getenv("GHOST_WEBHOOK_SECRET")
+    secret = GHOST_WEBHOOK_SECRET or None
     if not secret:
         logger.warning(
             "GHOST_WEBHOOK_SECRET not set — skipping Ghost webhook signature verification (demo mode)."

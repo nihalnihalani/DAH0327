@@ -111,7 +111,11 @@ class SentinelCallAgent:
     # Full incident response pipeline
     # ------------------------------------------------------------------
 
-    async def run_incident_response(self, service: str | None = None) -> dict[str, Any]:
+    async def run_incident_response(
+        self,
+        service: str | None = None,
+        incident_type: str | None = None,
+    ) -> dict[str, Any]:
         """Execute the complete incident response pipeline.
 
         Steps:
@@ -124,11 +128,14 @@ class SentinelCallAgent:
           7. Auth0 CIBA approval flow
           8. Bland AI phone call
           9. Ghost tiered reports
-         10. Overmind decision trace
+         10. Execute remediation
+         11. Overmind decision trace
 
         Args:
             service: Service to target. If ``None``, a random incident
                 type (and its associated service) is selected.
+            incident_type: Incident type key. If ``None``, one is
+                selected randomly (or matched to the chosen service).
 
         Returns:
             Full incident record dict.
@@ -137,9 +144,9 @@ class SentinelCallAgent:
         pipeline_start = time.time()
         incident_id = f"INC-{uuid.uuid4().hex[:8]}"
 
-        # Dynamically select an incident type
+        # Dynamically select an incident type (use caller-provided values when given)
         selected = random.choice(INCIDENT_TYPES)
-        incident_type = selected["type"]
+        incident_type = incident_type or selected["type"]
         service = service or selected["service"]
         selected_severity = selected["severity"]
 
@@ -521,13 +528,52 @@ class SentinelCallAgent:
             })
             await asyncio.sleep(1.5)  # Pause so dashboard can animate this step
 
-            # ---- Step 9: Resolve incident ----
+            # ---- Step 9: Execute remediation (if configured) ----
+            step_start = time.time()
+            from sentinelcall.remediation import RemediationExecutor
+            remediation = RemediationExecutor()
+            if remediation.is_configured:
+                remediation_result = remediation.execute(
+                    incident={
+                        "incident_id": incident_id,
+                        "service": service,
+                        "severity": incident_record["severity"],
+                        "recommended_action": recommended_action,
+                    },
+                    diagnosis=diagnosis_text,
+                    access_token=approval_result.get("access_token"),
+                )
+                incident_record["remediation"] = remediation_result
+            else:
+                incident_record["remediation"] = {"status": "not_configured"}
+                remediation_result = incident_record["remediation"]
+
+            step_time = time.time() - step_start
+            incident_record["steps"]["remediation"] = {
+                "duration_ms": round(step_time * 1000, 1),
+                "status": remediation_result.get("status"),
+                "backend": remediation_result.get("backend", "none"),
+            }
+            self.tracer.record_decision(
+                step="remediation_execution",
+                input_data={"incident_id": incident_id, "backend": remediation.get_status().get("active_backend")},
+                output_data=remediation_result,
+                model_used="remediation_executor",
+            )
+            await self._broadcast("step_complete", {
+                "step": "remediation",
+                "status": remediation_result.get("status"),
+                "backend": remediation_result.get("backend", "none"),
+            })
+            await asyncio.sleep(1.0)
+
+            # ---- Step 10: Resolve incident ----
             self.infra.resolve_incident()
             incident_record["status"] = "resolved"
             incident_record["resolved_at"] = time.time()
             incident_record["total_duration_seconds"] = round(time.time() - pipeline_start, 1)
 
-            # ---- Step 10: Final Overmind trace ----
+            # ---- Step 11: Final Overmind trace ----
             self.tracer.record_decision(
                 step="incident_resolved",
                 input_data={"incident_id": incident_id},
