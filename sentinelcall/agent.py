@@ -1,4 +1,4 @@
-"""Page0 Agent — autonomous incident response orchestrator.
+"""Pager0 Agent — autonomous incident response orchestrator.
 
 Coordinates every module in the pipeline:
   Metrics -> Anomaly Detection -> LLM Diagnosis -> Dynamic Investigation ->
@@ -10,6 +10,7 @@ Works entirely in demo mode (mock data) when API keys are absent.
 
 import asyncio
 import logging
+import random
 import time
 import uuid
 from datetime import datetime, timezone
@@ -30,13 +31,22 @@ from sentinelcall.ghost_webhooks import setup_ghost_webhooks
 from sentinelcall.macroscope_rca import MacroscopeAnalyzer
 from sentinelcall.overmind_setup import OvermindTracer
 from sentinelcall.mock_infra import MockInfrastructure
-from sentinelcall.config import ON_CALL_ENGINEER_ID, WEBHOOK_BASE_URL
+from sentinelcall.config import ON_CALL_ENGINEER_ID, WEBHOOK_BASE_URL, AUTH0_DOMAIN
 
 logger = logging.getLogger(__name__)
 
+# Pool of realistic incident types for dynamic selection
+INCIDENT_TYPES = [
+    {"type": "payment_service_error", "service": "payment-service", "severity": "SEV-1"},
+    {"type": "auth_latency_spike", "service": "user-service", "severity": "SEV-2"},
+    {"type": "database_connection_pool", "service": "database-primary", "severity": "SEV-1"},
+    {"type": "api_gateway_5xx", "service": "api-gateway", "severity": "SEV-1"},
+    {"type": "cache_eviction_storm", "service": "notification-service", "severity": "SEV-2"},
+]
+
 
 class SentinelCallAgent:
-    """The brain of Page0 — orchestrates the full incident response pipeline."""
+    """The brain of Pager0 — orchestrates the full incident response pipeline."""
 
     def __init__(self) -> None:
         # Infrastructure & monitoring
@@ -69,7 +79,7 @@ class SentinelCallAgent:
         self.incidents: list[dict[str, Any]] = []
         self._event_subscribers: list[asyncio.Queue] = []
 
-        logger.info("Page0 agent initialized — all modules ready")
+        logger.info("Pager0 agent initialized — all modules ready")
 
     # ------------------------------------------------------------------
     # SSE event broadcasting
@@ -117,16 +127,21 @@ class SentinelCallAgent:
          10. Overmind decision trace
 
         Args:
-            service: Service to target. Defaults to ``payment-service``.
+            service: Service to target. If ``None``, a random incident
+                type (and its associated service) is selected.
 
         Returns:
             Full incident record dict.
         """
         self.current_status = "responding"
         pipeline_start = time.time()
-        service = service or "payment-service"
         incident_id = f"INC-{uuid.uuid4().hex[:8]}"
-        incident_type = "payment_service_error"
+
+        # Dynamically select an incident type
+        selected = random.choice(INCIDENT_TYPES)
+        incident_type = selected["type"]
+        service = service or selected["service"]
+        selected_severity = selected["severity"]
 
         incident_record: dict[str, Any] = {
             "incident_id": incident_id,
@@ -137,7 +152,12 @@ class SentinelCallAgent:
             "steps": {},
         }
 
-        await self._broadcast("incident_start", {"incident_id": incident_id, "service": service})
+        logger.info(
+            "Selected incident type %r targeting %s (%s)",
+            incident_type, service, selected_severity,
+        )
+
+        await self._broadcast("incident_start", {"incident_id": incident_id, "service": service, "incident_type": incident_type})
         await asyncio.sleep(1.0)  # Let dashboard animate the incident start
 
         try:
@@ -167,7 +187,7 @@ class SentinelCallAgent:
             anomaly_text = self.anomaly_detector.format_for_diagnosis(anomalies)
             step_time = time.time() - step_start
 
-            incident_record["severity"] = f"SEV-{'1' if severity == 'critical' else '2' if severity == 'warning' else '3'}"
+            incident_record["severity"] = selected_severity
             incident_record["anomaly_count"] = len(anomalies)
             incident_record["steps"]["anomaly_detection"] = {
                 "duration_ms": round(step_time * 1000, 1),
@@ -195,7 +215,7 @@ class SentinelCallAgent:
                     prompt=anomaly_text,
                     severity=severity,
                     system_prompt=(
-                        "You are Page0, an autonomous SRE agent. "
+                        "You are Pager0, an autonomous SRE agent. "
                         "Analyze these anomalies and provide root cause, "
                         "impact assessment, and remediation steps."
                     ),
@@ -292,11 +312,40 @@ class SentinelCallAgent:
             # ---- Step 6: Auth0 CIBA approval flow ----
             step_start = time.time()
             recommended_action = "Roll back PR #47 and restore connection pool to 100"
+
+            auth_method = "CIBA Voice" if AUTH0_DOMAIN else "Simulated"
+            logger.info("CIBA: Initiating backchannel request (mode=%s)...", auth_method)
+            await self._broadcast("ciba_substage", {
+                "step": "auth0_ciba",
+                "substage": "initiating",
+                "message": "Initiating CIBA backchannel request...",
+                "auth_method": auth_method,
+            })
+
             ciba_result = self.ciba.initiate_ciba_approval(
                 engineer_id=ON_CALL_ENGINEER_ID,
                 action=recommended_action,
             )
             auth_req_id = ciba_result.get("auth_req_id", "")
+            # Track whether Auth0 responded live or fell back to simulation
+            ciba_source = ciba_result.get("source", "simulated")
+            if ciba_source == "auth0_ciba":
+                auth_method = "CIBA Voice"
+            else:
+                auth_method = "Simulated"
+
+            logger.info(
+                "CIBA: Backchannel request created -- auth_req_id=%s, source=%s",
+                auth_req_id, ciba_source,
+            )
+            await self._broadcast("ciba_substage", {
+                "step": "auth0_ciba",
+                "substage": "polling",
+                "message": "Polling for authorization...",
+                "auth_req_id": auth_req_id,
+                "auth_method": auth_method,
+            })
+            await asyncio.sleep(0.8)  # Brief pause to visualize polling stage
 
             # Fetch a token from the vault to demonstrate the feature
             vault_token = self.token_vault.get_token("github")
@@ -308,16 +357,18 @@ class SentinelCallAgent:
                 "duration_ms": round(step_time * 1000, 1),
                 "auth_req_id": auth_req_id,
                 "vault_service": vault_token.get("service"),
+                "auth_method": auth_method,
             }
             self.tracer.record_decision(
                 step="auth0_ciba_initiation",
                 input_data={"engineer": ON_CALL_ENGINEER_ID, "action": recommended_action},
-                output_data={"auth_req_id": auth_req_id},
+                output_data={"auth_req_id": auth_req_id, "auth_method": auth_method},
                 model_used="auth0",
             )
             await self._broadcast("step_complete", {
                 "step": "auth0_ciba",
                 "auth_req_id": auth_req_id,
+                "auth_method": auth_method,
             })
             await asyncio.sleep(1.5)  # Pause so dashboard can animate this step
 
@@ -348,8 +399,40 @@ class SentinelCallAgent:
             )
             call_id = call_result.get("call_id", "unknown")
 
-            # Simulate voice approval in demo mode
-            self.ciba.simulate_approval(auth_req_id)
+            # ---- CIBA voice approval (real or simulated) ----
+            await self._broadcast("ciba_substage", {
+                "step": "ciba_approval",
+                "substage": "awaiting_voice",
+                "message": "Awaiting engineer voice confirmation on call...",
+                "auth_method": auth_method,
+                "auth_req_id": auth_req_id,
+            })
+            await asyncio.sleep(1.2)  # Realistic delay for voice interaction
+
+            if self.ciba.is_live:
+                # Attempt real CIBA token exchange (Bland webhook would have
+                # triggered approval on a live call; poll to confirm)
+                logger.info("CIBA: Attempting live token exchange for auth_req_id=%s", auth_req_id)
+                approval_result = self.ciba.complete_ciba_from_voice(auth_req_id)
+            else:
+                # No Auth0 credentials -- fall back to simulation
+                logger.info("CIBA: Auth0 not configured, using simulated approval for auth_req_id=%s", auth_req_id)
+                approval_result = self.ciba.simulate_approval(auth_req_id)
+
+            approval_source = approval_result.get("source", "simulated")
+            approval_auth_method = "CIBA Voice" if approval_source == "auth0_ciba" else "Simulated"
+            logger.info(
+                "CIBA: Engineer approved via %s -- auth_req_id=%s",
+                "voice confirmation" if approval_auth_method == "CIBA Voice" else "simulated voice confirmation",
+                auth_req_id,
+            )
+            await self._broadcast("ciba_substage", {
+                "step": "ciba_approval",
+                "substage": "approved",
+                "message": "Engineer approved via voice confirmation",
+                "auth_method": approval_auth_method,
+                "auth_req_id": auth_req_id,
+            })
 
             # Get mock transcript
             transcript_data = get_call_transcript(call_id)
@@ -361,16 +444,18 @@ class SentinelCallAgent:
                 "call_id": call_id,
                 "pathway_id": pathway_id,
                 "call_status": call_result.get("status"),
+                "auth_method": approval_auth_method,
             }
             self.tracer.record_decision(
                 step="bland_ai_phone_call",
                 input_data={"pathway_id": pathway_id, "engineer": ON_CALL_ENGINEER_ID},
-                output_data={"call_id": call_id, "status": call_result.get("status")},
+                output_data={"call_id": call_id, "status": call_result.get("status"), "auth_method": approval_auth_method},
                 model_used="bland_ai",
             )
             await self._broadcast("step_complete", {
                 "step": "bland_call",
                 "call_id": call_id,
+                "auth_method": approval_auth_method,
             })
             await asyncio.sleep(2.0)  # Pause so dashboard can animate this step (longer for phone call)
 

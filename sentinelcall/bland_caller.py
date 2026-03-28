@@ -51,7 +51,7 @@ def _build_task_prompt(incident_context: dict[str, Any]) -> str:
     recommended_action = incident_context.get("recommended_action", "Restart affected pods.")
 
     return (
-        "You are Page0, an autonomous SRE incident response agent. "
+        "You are Pager0, an autonomous SRE incident response agent. "
         "You are calling the on-call engineer about a production incident.\n\n"
         "INCIDENT BRIEFING:\n"
         f"- Service: {service}\n"
@@ -60,7 +60,7 @@ def _build_task_prompt(incident_context: dict[str, Any]) -> str:
         f"- Root Cause: {root_cause}\n"
         f"- Recommended Action: {recommended_action}\n\n"
         "YOUR TASK:\n"
-        "1. Greet the engineer and identify yourself as Page0.\n"
+        "1. Greet the engineer and identify yourself as Pager0.\n"
         "2. Brief them on the incident (service, severity, what happened).\n"
         "3. If they ask for live metrics, use the QueryLiveMetrics tool.\n"
         "4. Present the recommended action and ask for verbal authorization.\n"
@@ -277,7 +277,7 @@ def make_incident_call(
         "metadata": {
             "incident_id": incident_context.get("incident_id", f"INC-{uuid.uuid4().hex[:8]}"),
             "severity": incident_context.get("severity", "SEV-2"),
-            "source": "page0",
+            "source": "pager0",
         },
     }
 
@@ -346,7 +346,7 @@ def get_call_status(call_id: str) -> dict[str, Any]:
             "call_length": 0.79,
             "answered_by": "human",
             "call_ended_by": "ASSISTANT",
-            "summary": "Page0 briefed engineer on SEV-2 api-gateway incident. Engineer approved pod restart.",
+            "summary": "Pager0 briefed engineer on SEV-2 api-gateway incident. Engineer approved pod restart.",
             "mock": True,
         }
 
@@ -381,7 +381,7 @@ def get_call_transcript(call_id: str) -> dict[str, Any]:
         return {
             "call_id": call_id,
             "transcripts": [
-                {"id": 1, "user": "assistant", "text": "Hello, this is Page0. We've detected a SEV-2 incident on api-gateway.", "created_at": "2026-03-27T00:00:01Z"},
+                {"id": 1, "user": "assistant", "text": "Hello, this is Pager0. We've detected a SEV-2 incident on api-gateway.", "created_at": "2026-03-27T00:00:01Z"},
                 {"id": 2, "user": "user", "text": "What are the current metrics?", "created_at": "2026-03-27T00:00:05Z"},
                 {"id": 3, "user": "agent-action", "text": "Calling tool: QueryLiveMetrics", "created_at": "2026-03-27T00:00:06Z"},
                 {"id": 4, "user": "assistant", "text": "Error rate is at 12.4%, p99 latency 2,340ms, CPU at 89%.", "created_at": "2026-03-27T00:00:08Z"},
@@ -390,7 +390,7 @@ def get_call_transcript(call_id: str) -> dict[str, Any]:
                 {"id": 7, "user": "assistant", "text": "Authorization received. Triggering CIBA approval and initiating remediation. Thank you.", "created_at": "2026-03-27T00:00:18Z"},
             ],
             "concatenated_transcript": (
-                "Assistant: Hello, this is Page0. We've detected a SEV-2 incident on api-gateway.\n"
+                "Assistant: Hello, this is Pager0. We've detected a SEV-2 incident on api-gateway.\n"
                 "User: What are the current metrics?\n"
                 "Assistant: Error rate is at 12.4%, p99 latency 2,340ms, CPU at 89%.\n"
                 "User: Okay, go ahead and restart the affected pods.\n"

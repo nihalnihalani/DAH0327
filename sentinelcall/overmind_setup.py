@@ -17,9 +17,9 @@ Install:
 
 Usage with OverClaw optimizer:
     overclaw init
-    overclaw agent register page0 sentinelcall.overclaw_agent:run
-    overclaw setup page0 --policy sentinelcall/overclaw_policies.md
-    overclaw optimize page0
+    overclaw agent register pager0 sentinelcall.overclaw_agent:run
+    overclaw setup pager0 --policy sentinelcall/overclaw_policies.md
+    overclaw optimize pager0
 """
 
 import logging
@@ -183,7 +183,7 @@ class OvermindTracer:
     def __init__(
         self,
         api_key: str | None = None,
-        service_name: str = "page0-agent",
+        service_name: str = "pager0-agent",
     ):
         self.api_key = api_key or OVERMIND_API_KEY
         self.service_name = service_name
@@ -285,12 +285,12 @@ class OvermindTracer:
         if _HAS_OVERMIND and self._tracer is not None:
             try:
                 with self._tracer.start_as_current_span(
-                    f"page0.{step}"
+                    f"pager0.{step}"
                 ) as span:
-                    span.set_attribute("page0.step", step)
-                    span.set_attribute("page0.model", model_used)
-                    span.set_attribute("page0.input", decision["input_summary"])
-                    span.set_attribute("page0.output", decision["output_summary"])
+                    span.set_attribute("pager0.step", step)
+                    span.set_attribute("pager0.model", model_used)
+                    span.set_attribute("pager0.input", decision["input_summary"])
+                    span.set_attribute("pager0.output", decision["output_summary"])
                     if user_id:
                         _overmind_set_user(user_id=user_id)
                     _overmind_set_tag("pipeline.step", step)
@@ -310,7 +310,7 @@ class OvermindTracer:
             return "No decisions recorded yet."
 
         lines = [
-            f"Page0 Agent Decision Trace ({len(self._decisions)} steps)",
+            f"Pager0 Agent Decision Trace ({len(self._decisions)} steps)",
             "=" * 60,
         ]
         for i, d in enumerate(self._decisions, 1):
@@ -331,8 +331,8 @@ class OvermindTracer:
     def get_optimization_report(self) -> dict[str, Any]:
         """Return optimization data for demo display.
 
-        When OverClaw has been run (``overclaw optimize page0``), results
-        are saved to ``.overclaw/agents/page0/experiments/report.md``.
+        When OverClaw has been run (``overclaw optimize pager0``), results
+        are saved to ``.overclaw/agents/pager0/experiments/report.md``.
         This method returns a summary suitable for the dashboard.
 
         Without OverClaw results, returns realistic recommendations based on
@@ -353,7 +353,7 @@ class OvermindTracer:
             "dashboard_url": self.get_dashboard_url(),
             "overclaw_available": _HAS_OVERCLAW,
             "overclaw_instructions": (
-                "Run 'overclaw optimize page0' to auto-optimize "
+                "Run 'overclaw optimize pager0' to auto-optimize "
                 "prompts, tools, model selection, and agent logic."
             ),
             "recommendations": [
@@ -398,7 +398,7 @@ class OvermindTracer:
         """Try to load OverClaw optimization results from disk."""
         import os
         report_path = os.path.join(
-            ".overclaw", "agents", "page0", "experiments", "results.tsv"
+            ".overclaw", "agents", "pager0", "experiments", "results.tsv"
         )
         if not os.path.exists(report_path):
             return None
@@ -425,7 +425,7 @@ class OvermindTracer:
                 "improvement": improvement,
                 "dashboard_url": self.get_dashboard_url(),
                 "best_agent_path": os.path.join(
-                    ".overclaw", "agents", "page0", "experiments", "best_agent.py"
+                    ".overclaw", "agents", "pager0", "experiments", "best_agent.py"
                 ),
                 "summary": (
                     f"OverClaw ran {len(scores)} iterations. "

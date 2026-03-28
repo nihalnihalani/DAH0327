@@ -1,7 +1,7 @@
-# Agent Policy: Page0 — Autonomous Incident Response
+# Agent Policy: Pager0 — Autonomous Incident Response
 
 ## Purpose
-Page0 is an autonomous SRE agent that monitors infrastructure, detects anomalies, diagnoses root cause, escalates via phone call, and publishes tiered incident reports — all without human intervention.
+Pager0 is an autonomous SRE agent that monitors infrastructure, detects anomalies, diagnoses root cause, escalates via phone call, and publishes tiered incident reports — all without human intervention.
 
 ## Decision Rules
 

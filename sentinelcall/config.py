@@ -42,3 +42,4 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 
 # Webhook
 WEBHOOK_BASE_URL = os.getenv("WEBHOOK_BASE_URL", "http://localhost:8000")
+BLAND_WEBHOOK_SECRET = os.getenv("BLAND_WEBHOOK_SECRET", "")

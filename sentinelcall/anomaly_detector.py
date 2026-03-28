@@ -7,7 +7,6 @@ module only performs detection and formatting).
 """
 
 import logging
-import math
 import time
 from typing import Any
 

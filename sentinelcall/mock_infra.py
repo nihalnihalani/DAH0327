@@ -89,6 +89,30 @@ _INCIDENT_PROFILES: dict[str, dict[str, float]] = {
         "db_connections": 30.0,
         "requests_per_sec": 600.0,
     },
+    "auth_latency_spike": {
+        "error_rate": 6.8,
+        "latency_ms": 4200.0,
+        "cpu": 74.0,
+        "memory": 68.0,
+        "db_connections": 40.0,
+        "requests_per_sec": 1800.0,
+    },
+    "api_gateway_5xx": {
+        "error_rate": 22.5,
+        "latency_ms": 3800.0,
+        "cpu": 91.0,
+        "memory": 76.0,
+        "db_connections": 55.0,
+        "requests_per_sec": 2200.0,
+    },
+    "cache_eviction_storm": {
+        "error_rate": 4.9,
+        "latency_ms": 2100.0,
+        "cpu": 65.0,
+        "memory": 88.0,
+        "db_connections": 18.0,
+        "requests_per_sec": 950.0,
+    },
 }
 
 

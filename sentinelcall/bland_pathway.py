@@ -76,7 +76,7 @@ def build_pathway_nodes(incident_context: dict[str, Any] | None = None) -> list[
                 "isStart": True,
                 "text": "",
                 "prompt": (
-                    f"You are Page0, an autonomous SRE incident response agent. "
+                    f"You are Pager0, an autonomous SRE incident response agent. "
                     f"Greet the engineer and brief them on the incident:\n"
                     f"- Service: {service}\n"
                     f"- Severity: {severity}\n"
@@ -287,7 +287,7 @@ def create_pathway(incident_context: dict[str, Any] | None = None) -> dict[str, 
     global _pathway_id
 
     ctx = incident_context or {}
-    pathway_name = f"Page0 Incident Response - {ctx.get('service', 'general')}"
+    pathway_name = f"Pager0 Incident Response - {ctx.get('service', 'general')}"
     nodes = build_pathway_nodes(incident_context)
     edges = build_pathway_edges()
 
@@ -321,7 +321,10 @@ def create_pathway(incident_context: dict[str, Any] | None = None) -> dict[str, 
         )
         create_resp.raise_for_status()
         create_data = create_resp.json()
-        new_pathway_id = create_data.get("pathway_id")
+        # Bland API nests the pathway_id under "data" in some responses
+        new_pathway_id = create_data.get("pathway_id") or (
+            create_data.get("data", {}).get("pathway_id")
+        )
 
         if not new_pathway_id:
             raise ValueError(f"No pathway_id in create response: {create_data}")

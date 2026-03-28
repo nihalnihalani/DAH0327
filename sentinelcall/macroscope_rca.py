@@ -56,7 +56,7 @@ class MacroscopeAnalyzer:
         github_repo: str | None = None,
         github_token: str | None = None,
     ):
-        self.repo = github_repo or GITHUB_REPO or "page0/infra"
+        self.repo = github_repo or GITHUB_REPO or "pager0/infra"
         self.github_token = github_token or GITHUB_TOKEN or None
         self._configured = bool(self.repo and self.github_token)
 

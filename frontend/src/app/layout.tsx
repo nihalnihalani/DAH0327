@@ -8,7 +8,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Page0 — Autonomous Incident Response",
+  title: "Pager0 — Autonomous Incident Response",
   description:
     "Autonomous SRE agent that monitors, detects, diagnoses, and resolves incidents in 47 seconds",
 };

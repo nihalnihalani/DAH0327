@@ -535,7 +535,7 @@ a{color:inherit;text-decoration:none;}
       <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme" title="Toggle light/dark mode">
         <span id="themeIcon">&#9790;</span>
       </button>
-      <a href="/login" class="btn-signin-sm">Sign In</a>
+      <a href="/auth" class="btn-signin-sm">Sign In</a>
     </div>
   </div>
 </header>
@@ -549,7 +549,7 @@ a{color:inherit;text-decoration:none;}
   <h1 class="fade-up fade-up-d1">Autonomous Incident Response in <em>47 Seconds</em></h1>
   <p class="hero-sub fade-up fade-up-d2">Pager0 monitors your infrastructure, detects anomalies, diagnoses root cause, and resolves incidents&mdash;all without human intervention.</p>
   <div class="hero-ctas fade-up fade-up-d3">
-    <a href="/login" class="btn-primary">
+    <a href="/auth" class="btn-primary">
       <!-- Auth0 shield icon -->
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
       Sign in with Auth0
@@ -625,7 +625,7 @@ a{color:inherit;text-decoration:none;}
   <div class="cta-card fade-up">
     <h2>Ready to Never Get Paged at 3 AM Again?</h2>
     <p>Let Pager0 handle the full incident lifecycle &mdash; from detection to resolution &mdash; while you sleep.</p>
-    <a href="/login" class="btn-primary">
+    <a href="/auth" class="btn-primary">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
       Get Started with Auth0
     </a>
@@ -639,7 +639,7 @@ a{color:inherit;text-decoration:none;}
     <ul class="footer-links">
       <li><a href="#features">Features</a></li>
       <li><a href="/dashboard">Dashboard</a></li>
-      <li><a href="/login">Sign In</a></li>
+      <li><a href="/auth">Sign In</a></li>
     </ul>
   </div>
 </footer>

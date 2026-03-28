@@ -1,4 +1,4 @@
-"""OverClaw-compatible agent entrypoint for Page0.
+"""OverClaw-compatible agent entrypoint for Pager0.
 
 This module exposes a ``run(input: dict) -> dict`` function that OverClaw
 calls for each test case during optimization.  It wraps the full
@@ -6,13 +6,13 @@ SentinelCallAgent pipeline and returns a structured result that OverClaw
 scores against the evaluation spec.
 
 Register with OverClaw:
-    overclaw agent register page0 sentinelcall.overclaw_agent:run
+    overclaw agent register pager0 sentinelcall.overclaw_agent:run
 
 Setup evaluation:
-    overclaw setup page0 --policy sentinelcall/overclaw_policies.md
+    overclaw setup pager0 --policy sentinelcall/overclaw_policies.md
 
 Optimize:
-    overclaw optimize page0
+    overclaw optimize pager0
 """
 
 import asyncio
@@ -32,7 +32,7 @@ except ImportError:
 def run(input: dict) -> dict:
     """OverClaw agent entrypoint.
 
-    Accepts an incident scenario as input and runs the full Page0
+    Accepts an incident scenario as input and runs the full Pager0
     pipeline.  Returns a structured dict that OverClaw evaluates.
 
     Args:

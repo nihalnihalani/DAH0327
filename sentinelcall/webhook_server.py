@@ -19,7 +19,10 @@ Ref:
 Uses APIRouter so it can be mounted in the main dashboard app.
 """
 
+import hashlib
+import hmac
 import logging
+import os
 import time
 from typing import Any
 
@@ -35,6 +38,51 @@ call_results: dict[str, dict[str, Any]] = {}
 
 # Module-level storage for function call logs
 function_call_log: list[dict[str, Any]] = []
+
+
+# ---------------------------------------------------------------------------
+# Bland webhook signature verification
+# ---------------------------------------------------------------------------
+
+
+async def verify_bland_signature(request: Request, body: bytes) -> bool:
+    """Verify the HMAC-SHA256 signature on an incoming Bland webhook request.
+
+    If ``BLAND_WEBHOOK_SECRET`` is not set the check is skipped (dev/demo mode).
+
+    Args:
+        request: The incoming FastAPI request (used to read headers).
+        body: The raw request body bytes.
+
+    Returns:
+        ``True`` if the signature is valid or verification is disabled;
+        ``False`` if the signature is present but does not match.
+    """
+    from sentinelcall.config import BLAND_WEBHOOK_SECRET
+    secret = BLAND_WEBHOOK_SECRET or None
+    if not secret:
+        logger.warning(
+            "BLAND_WEBHOOK_SECRET not set — skipping Bland webhook signature verification (demo mode)."
+        )
+        return True
+
+    signature_header = request.headers.get("X-Bland-Signature", "")
+    if not signature_header:
+        logger.warning("Bland webhook request missing X-Bland-Signature header.")
+        return False
+
+    expected = hmac.new(
+        secret.encode("utf-8"),
+        body,
+        hashlib.sha256,
+    ).hexdigest()
+
+    if hmac.compare_digest(expected, signature_header):
+        logger.debug("Bland webhook signature verified successfully.")
+        return True
+
+    logger.warning("Bland webhook signature mismatch — rejecting request.")
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -149,8 +197,13 @@ async def bland_webhook(request: Request) -> JSONResponse:
       - concatenated_transcript (string)
       - variables, summary, call_length, metadata, price, recording_url
     """
+    raw_body = await request.body()
+    if not await verify_bland_signature(request, raw_body):
+        return JSONResponse({"error": "invalid signature"}, status_code=401)
+
     try:
-        body = await request.json()
+        import json as _json
+        body = _json.loads(raw_body)
     except Exception:
         return JSONResponse({"error": "invalid JSON"}, status_code=400)
 
@@ -222,8 +275,13 @@ async def bland_function_call(request: Request) -> JSONResponse:
     The response JSON is parsed by Bland using the tool's ``response`` field
     (JSONPath extraction) and fed back into the agent's conversation context.
     """
+    raw_body = await request.body()
+    if not await verify_bland_signature(request, raw_body):
+        return JSONResponse({"error": "invalid signature"}, status_code=401)
+
     try:
-        body = await request.json()
+        import json as _json
+        body = _json.loads(raw_body)
     except Exception:
         return JSONResponse({"error": "invalid JSON"}, status_code=400)
 

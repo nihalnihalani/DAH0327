@@ -15,10 +15,10 @@ NC='\033[0m'
 banner() {
     echo ""
     echo -e "${CYAN}${BOLD}"
-    echo "  ╔═══════════════════════════════════════════════════════╗"
-    echo "  ║             Pager0 — Autonomous SRE Agent              ║"
-    echo "  ║     Deep Agents Hackathon | March 27, 2026           ║"
-    echo "  ╚═══════════════════════════════════════════════════════╝"
+    echo "  ╔════════════════════════════════════════════════════╗"
+    echo "  ║        Pager0 — Autonomous SRE Agent             ║"
+    echo "  ║    Deep Agents Hackathon | March 27, 2026        ║"
+    echo "  ╚════════════════════════════════════════════════════╝"
     echo -e "${NC}"
 }
 
@@ -83,8 +83,8 @@ fi
 # ------------------------------------------------------------------
 step "Checking environment configuration..."
 if [ ! -f ".env" ]; then
-    if [ -f "sentinelcall/.env.example" ]; then
-        cp sentinelcall/.env.example .env
+    if [ -f ".env.example" ]; then
+        cp .env.example .env
         warn "Created .env from template — fill in your API keys for full functionality"
         warn "Edit .env and re-run this script to enable live integrations"
     else

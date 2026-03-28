@@ -1212,7 +1212,7 @@ async def api_trigger_debate(background_tasks: BackgroundTasks):
         incident_ctx = {
             "service": latest.get("service", "api-gateway"),
             "severity": latest.get("severity", "SEV-2"),
-            "description": latest.get("description", "Elevated error rates detected."),
+            "description": latest.get("description") or latest.get("diagnosis", "Elevated error rates detected."),
             "root_cause": latest.get("root_cause", "Under investigation."),
             "recommended_action": latest.get("recommended_action", "Pending analysis."),
             "incident_id": latest.get("incident_id", None),

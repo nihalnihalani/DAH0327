@@ -252,7 +252,16 @@ class TokenVault:
             logger.info(
                 "TokenVault: no subject_token set — obtaining M2M token for exchange"
             )
-            subject_token = self._get_mgmt_token()
+            try:
+                subject_token = self._get_mgmt_token()
+            except requests.RequestException as exc:
+                logger.warning(
+                    "TokenVault: failed to obtain M2M token for %s — "
+                    "falling back to mock. Error: %s",
+                    service,
+                    exc,
+                )
+                return self._fetch_mock_token(service, scopes)
             subject_token_type = SUBJECT_TOKEN_TYPE_ACCESS
 
         payload = {

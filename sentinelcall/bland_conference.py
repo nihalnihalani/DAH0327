@@ -70,9 +70,9 @@ def build_debate_pathway(incident_context: dict[str, Any]) -> dict[str, Any]:
                 "isStart": True,
                 "text": "",
                 "prompt": (
-                    "You are the moderator of a Page0 incident war room. "
+                    "You are the moderator of a Pager0 incident war room. "
                     "Greet the on-call engineer and say: "
-                    "'Welcome to the Page0 incident war room. We have a "
+                    "'Welcome to the Pager0 incident war room. We have a "
                     f"{severity} incident on {service}. "
                     "Two AI analysts will present opposing views on how to respond. "
                     "You can ask questions or weigh in at any time. "
@@ -139,7 +139,7 @@ def build_debate_pathway(incident_context: dict[str, Any]) -> dict[str, Any]:
                     "You are the war room moderator wrapping up the debate. "
                     "Based on the engineer's input, synthesize the final decision. "
                     "Summarize: 1) What Agent Hawk recommended, 2) What Agent Dove recommended, "
-                    "3) What the engineer decided, and 4) The action Page0 will now execute. "
+                    "3) What the engineer decided, and 4) The action Pager0 will now execute. "
                     "Be concise and confirm the decision clearly."
                 ),
             },
@@ -150,7 +150,7 @@ def build_debate_pathway(incident_context: dict[str, Any]) -> dict[str, Any]:
             "data": {
                 "name": "End War Room",
                 "prompt": (
-                    "Thank the engineer for their time. Let them know Page0 will execute "
+                    "Thank the engineer for their time. Let them know Pager0 will execute "
                     "the agreed remediation and publish incident reports to Ghost CMS — "
                     "an executive summary and a detailed engineering report. "
                     "End the call politely."
@@ -226,7 +226,7 @@ def _create_pathway_on_bland(incident_context: dict[str, Any]) -> str:
     """
     pathway_data = build_debate_pathway(incident_context)
     service = incident_context.get("service", "unknown")
-    pathway_name = f"Page0 Debate War Room - {service}"
+    pathway_name = f"Pager0 Debate War Room - {service}"
 
     # Step 1: create empty pathway
     logger.info("[REAL] Creating debate pathway: %s", pathway_name)
@@ -243,9 +243,12 @@ def _create_pathway_on_bland(incident_context: dict[str, Any]) -> str:
         timeout=30,
     )
     create_resp.raise_for_status()
-    pathway_id = create_resp.json().get("pathway_id")
+    resp_json = create_resp.json()
+    pathway_id = resp_json.get("pathway_id") or (
+        resp_json.get("data", {}).get("pathway_id")
+    )
     if not pathway_id:
-        raise ValueError(f"No pathway_id in create response: {create_resp.json()}")
+        raise ValueError(f"No pathway_id in create response: {resp_json}")
 
     # Step 2: populate nodes and edges
     logger.info(
@@ -352,7 +355,7 @@ def start_debate_call(
                     "incident_id", f"INC-{uuid.uuid4().hex[:8]}"
                 ),
                 "severity": severity,
-                "source": "page0",
+                "source": "pager0",
             },
         }
 
@@ -440,24 +443,24 @@ def get_debate_transcript(call_id: str) -> dict[str, Any]:
             "call_id": call_id,
             "call_type": "debate_war_room",
             "transcripts": [
-                {"id": 1, "user": "assistant", "text": "Welcome to the Page0 incident war room. We have a SEV-2 incident on api-gateway. Two AI analysts will present opposing views. Let's start with Agent Hawk.", "created_at": "2026-03-27T00:00:01Z"},
+                {"id": 1, "user": "assistant", "text": "Welcome to the Pager0 incident war room. We have a SEV-2 incident on api-gateway. Two AI analysts will present opposing views. Let's start with Agent Hawk.", "created_at": "2026-03-27T00:00:01Z"},
                 {"id": 2, "user": "assistant", "text": "Agent Hawk here. We need to roll back NOW. Error rate is at 12.4% and climbing. Every minute costs $5,600 in revenue. The last deploy went out 12 minutes ago -- it's always the last deploy.", "created_at": "2026-03-27T00:00:05Z"},
                 {"id": 3, "user": "assistant", "text": "What do you think? Do you agree with Agent Hawk's push for immediate action?", "created_at": "2026-03-27T00:00:12Z"},
                 {"id": 4, "user": "user", "text": "Let me hear the other side first.", "created_at": "2026-03-27T00:00:16Z"},
                 {"id": 5, "user": "assistant", "text": "Agent Dove here. Hold on -- the metrics show error spikes in the payment service too, which we didn't deploy to. This could be a downstream dependency. Rolling back our code won't fix an upstream issue and wastes precious time.", "created_at": "2026-03-27T00:00:20Z"},
                 {"id": 6, "user": "assistant", "text": "Agent Dove disagrees. As the on-call engineer, what is your call?", "created_at": "2026-03-27T00:00:28Z"},
                 {"id": 7, "user": "user", "text": "Roll back just the last PR but also check the payment service dependency.", "created_at": "2026-03-27T00:00:35Z"},
-                {"id": 8, "user": "assistant", "text": "Decision confirmed: targeted rollback of the last PR plus parallel investigation of the payment service dependency. Page0 will execute now. Thank you.", "created_at": "2026-03-27T00:00:40Z"},
+                {"id": 8, "user": "assistant", "text": "Decision confirmed: targeted rollback of the last PR plus parallel investigation of the payment service dependency. Pager0 will execute now. Thank you.", "created_at": "2026-03-27T00:00:40Z"},
             ],
             "concatenated_transcript": (
-                "Moderator: Welcome to the Page0 incident war room. Two AI analysts will present opposing views.\n"
+                "Moderator: Welcome to the Pager0 incident war room. Two AI analysts will present opposing views.\n"
                 "Agent Hawk: We need to roll back NOW. Error rate is 12.4% and climbing. Every minute costs $5,600.\n"
                 "Moderator: Do you agree with Agent Hawk's push for immediate action?\n"
                 "Engineer: Let me hear the other side first.\n"
                 "Agent Dove: The metrics show error spikes in payment service too. This could be downstream.\n"
                 "Moderator: What is your call?\n"
                 "Engineer: Roll back just the last PR but also check the payment service dependency.\n"
-                "Moderator: Decision confirmed. Page0 will execute now. Thank you."
+                "Moderator: Decision confirmed. Pager0 will execute now. Thank you."
             ),
             "mock": True,
         }
